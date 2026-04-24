@@ -18,15 +18,19 @@ from forge.models import (
 class TestCollectorWeights:
     def test_default_weights_sum_to_one(self):
         w = CollectorWeights()
-        total = w.test_metrics + w.complexity + w.dependency_health + w.requirements_coverage
+        total = sum(getattr(w, f) for f in CollectorWeights.model_fields)
         assert abs(total - 1.0) < 0.001
 
     def test_custom_valid_weights(self):
         w = CollectorWeights(
             test_metrics=0.40,
-            complexity=0.20,
-            dependency_health=0.25,
-            requirements_coverage=0.15,
+            complexity=0.15,
+            dependency_health=0.20,
+            requirements_coverage=0.10,
+            static_analysis=0.05,
+            type_coverage=0.05,
+            dead_code=0.05,
+            mutation_testing=0.00,
         )
         assert w.test_metrics == 0.40
 
@@ -66,6 +70,10 @@ class TestProjectHealthReport:
             complexity=0.5,
             dependency_health=0.0,
             requirements_coverage=0.0,
+            static_analysis=0.0,
+            type_coverage=0.0,
+            dead_code=0.0,
+            mutation_testing=0.0,
         )
         report = ProjectHealthReport(
             project_name="x",

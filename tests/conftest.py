@@ -88,10 +88,14 @@ def project_with_forge_toml(tmp_project: Path) -> Path:
             name = "custom-name"
 
             [weights]
-            test_metrics = 0.40
-            complexity = 0.20
-            dependency_health = 0.25
-            requirements_coverage = 0.15
+            test_metrics        = 0.30
+            complexity          = 0.15
+            dependency_health   = 0.20
+            requirements_coverage = 0.10
+            static_analysis     = 0.10
+            type_coverage       = 0.10
+            dead_code           = 0.05
+            mutation_testing    = 0.00
 
             [thresholds]
             overall = 0.75

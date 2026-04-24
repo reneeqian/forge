@@ -32,6 +32,10 @@ collectors = [
     "radon>=6.0",
     "pip-audit>=2.0",
     "pygithub>=2.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "vulture>=2.3",
+    "mutmut>=2.0",
 ]
 all = ["forge-utils[dev,collectors]"]
 

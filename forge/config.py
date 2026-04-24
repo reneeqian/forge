@@ -35,6 +35,9 @@ class ForgeConfig(BaseModel):
     # Optional: override the Python interpreter used to run tests
     python_executable: str = ""
 
+    # Mutation testing is disabled by default — it is very slow (REQ-015)
+    mutation_testing_enabled: bool = False
+
 
 def load_config(project_path: Path) -> ForgeConfig:
     """Load forge.toml from *project_path*, returning defaults if absent.
@@ -55,7 +58,9 @@ def load_config(project_path: Path) -> ForgeConfig:
     project_name = raw.get("project", {}).get("name", project_path.name)
     weights_raw = raw.get("weights", {})
     thresholds_raw = raw.get("thresholds", {})
-    req_raw = raw.get("collectors", {}).get("requirements", {})
+    collectors_raw = raw.get("collectors", {})
+    req_raw = collectors_raw.get("requirements", {})
+    mutation_raw = collectors_raw.get("mutation_testing", {})
     test_runner_raw = raw.get("test_runner", {})
 
     weights = CollectorWeights(**weights_raw) if weights_raw else CollectorWeights()
@@ -67,4 +72,5 @@ def load_config(project_path: Path) -> ForgeConfig:
         threshold_overall=thresholds_raw.get("overall", 0.70),
         threshold_coverage=thresholds_raw.get("coverage", 0.80),
         python_executable=test_runner_raw.get("python", ""),
+        mutation_testing_enabled=mutation_raw.get("enabled", False),
     )

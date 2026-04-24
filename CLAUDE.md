@@ -36,7 +36,11 @@ Forge is a collector-aggregator CLI tool. The main data flow:
 
 **Scoring**: each collector returns a `score` (0.0–1.0). `ProjectHealthReport.overall_score` is a weighted average; `grade` maps to A/B/C/D/F at thresholds 0.90/0.80/0.70/0.60.
 
-Default weights: `test_metrics=0.35`, `complexity=0.25`, `dependency_health=0.25`, `requirements_coverage=0.15`. These are overridable via `forge.toml` in the analyzed project.
+Default weights: `test_metrics=0.30`, `complexity=0.15`, `dependency_health=0.20`, `requirements_coverage=0.10`, `static_analysis=0.10`, `type_coverage=0.10`, `dead_code=0.05`, `mutation_testing=0.00`. These are overridable via `forge.toml`. All 8 weights must sum to 1.0.
+
+**Mutation testing** is disabled by default (very slow). Enable per-project: `[collectors.mutation_testing] enabled = true` in `forge.toml`.
+
+**Coverage-only mode**: `Aggregator.run(project_path, skip_test_run=True)` skips pytest execution and reads an existing `coverage.xml` from the project. Use this when the caller already ran tests.
 
 ## Key modules
 
@@ -46,10 +50,14 @@ Default weights: `test_metrics=0.35`, `complexity=0.25`, `dependency_health=0.25
 | `forge/aggregator.py` | Runs all collectors, assembles `ProjectHealthReport` |
 | `forge/models.py` | Pydantic v2 models: `ProjectHealthReport`, `CollectorWeights`, 4 `CollectorResult` subclasses |
 | `forge/config.py` | Loads `forge.toml` into `ForgeConfig`; provides defaults if file absent |
-| `forge/collectors/test_metrics.py` | Runs pytest + coverage.py subprocess; auto-detects project Python |
-| `forge/collectors/complexity.py` | Runs radon for cyclomatic complexity + maintainability index |
+| `forge/collectors/test_metrics.py` | Runs pytest + coverage.py subprocess; auto-detects project Python; supports `run_tests=False` coverage-only mode |
+| `forge/collectors/complexity.py` | Runs radon for **cyclomatic** complexity (CC) + maintainability index (MI) |
 | `forge/collectors/dependency_health.py` | Runs pip-audit; skips if no `requirements.txt` or `pyproject.toml` found |
 | `forge/collectors/requirements_coverage.py` | YAML mode (preferred) or regex fallback — see below |
+| `forge/collectors/static_analysis.py` | Runs ruff (or flake8 fallback); error density score |
+| `forge/collectors/type_coverage.py` | Runs mypy; count-based score (100+ errors → 0.0) |
+| `forge/collectors/dead_code.py` | Runs vulture ≥80% confidence; density-based score |
+| `forge/collectors/mutation_testing.py` | Runs mutmut; disabled by default (very slow) |
 | `forge/scaffolder/engine.py` | Creates new project trees from templates using `$VAR` substitution |
 
 ## Non-obvious collector behaviour
@@ -67,10 +75,15 @@ Default weights: `test_metrics=0.35`, `complexity=0.25`, `dependency_health=0.25
 name = "my-project"
 
 [weights]
-test_metrics = 0.35
-complexity = 0.25
-dependency_health = 0.25
-requirements_coverage = 0.15
+# All 8 weights must sum to 1.0
+test_metrics        = 0.30
+complexity          = 0.15
+dependency_health   = 0.20
+requirements_coverage = 0.10
+static_analysis     = 0.10
+type_coverage       = 0.10
+dead_code           = 0.05
+mutation_testing    = 0.00   # set to non-zero only if enabled below
 
 [thresholds]
 overall = 0.70
@@ -78,6 +91,9 @@ coverage = 0.80
 
 [collectors.requirements]
 tag_pattern = "REQ-\\d+"   # only used when no requirements.yaml found
+
+[collectors.mutation_testing]
+enabled = false   # set to true to run mutmut (very slow — 30+ min)
 
 [test_runner]
 python = "/path/to/env/bin/python"   # overrides auto-detection

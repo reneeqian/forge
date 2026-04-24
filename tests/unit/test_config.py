@@ -14,7 +14,7 @@ class TestLoadConfig:
         config = load_config(tmp_path)
         assert isinstance(config, ForgeConfig)
         assert config.project_name == tmp_path.name
-        assert config.weights.test_metrics == 0.35
+        assert config.weights.test_metrics == 0.30
 
     def test_reads_project_name(self, tmp_path: Path):
         (tmp_path / "forge.toml").write_text(
@@ -30,14 +30,18 @@ class TestLoadConfig:
         (tmp_path / "forge.toml").write_text(
             textwrap.dedent("""\
                 [weights]
-                test_metrics = 0.40
-                complexity = 0.20
-                dependency_health = 0.25
-                requirements_coverage = 0.15
+                test_metrics = 0.35
+                complexity = 0.15
+                dependency_health = 0.20
+                requirements_coverage = 0.10
+                static_analysis = 0.10
+                type_coverage = 0.05
+                dead_code = 0.05
+                mutation_testing = 0.00
             """)
         )
         config = load_config(tmp_path)
-        assert config.weights.test_metrics == 0.40
+        assert config.weights.test_metrics == 0.35
 
     def test_reads_thresholds(self, tmp_path: Path):
         (tmp_path / "forge.toml").write_text(
@@ -65,7 +69,7 @@ class TestLoadConfig:
         """Only project name set; weights should be defaults."""
         (tmp_path / "forge.toml").write_text("[project]\nname = 'partial'\n")
         config = load_config(tmp_path)
-        assert config.weights.test_metrics == 0.35
+        assert config.weights.test_metrics == 0.30
 
     def test_fallback_name_when_project_section_absent(self, tmp_path: Path):
         (tmp_path / "forge.toml").write_text("[thresholds]\noverall = 0.75\n")

@@ -170,6 +170,10 @@ def _print_report(report: ProjectHealthReport) -> None:
         ("Complexity", report.complexity),
         ("Dep. Health", report.dependency_health),
         ("Req. Coverage", report.requirements_coverage),
+        ("Static Analysis", report.static_analysis),
+        ("Type Coverage", report.type_coverage),
+        ("Dead Code", report.dead_code),
+        ("Mutation Testing", report.mutation_testing),
     ]
 
     for label, result in collectors:
@@ -212,21 +216,28 @@ def _collector_detail(result: CollectorResult) -> str:
     """One-line human summary for each collector type."""
     from forge.models import (
         ComplexityResult,
+        DeadCodeResult,
         DependencyHealthResult,
+        MutationTestingResult,
         RequirementsCoverageResult,
+        StaticAnalysisResult,
         TestMetricsResult,
+        TypeCoverageResult,
     )
 
     if isinstance(result, TestMetricsResult):
+        if result.details.get("coverage_only"):
+            cov = f"{result.line_coverage:.1f}%" if result.line_coverage is not None else "N/A"
+            return f"coverage {cov} (coverage-only mode)"
         cov = f", coverage {result.line_coverage:.1f}%" if result.line_coverage is not None else ""
         return f"{result.passed}/{result.total} tests passed{cov}"
 
     if isinstance(result, ComplexityResult):
         parts = []
         if result.avg_cyclomatic is not None:
-            parts.append(f"avg CC {result.avg_cyclomatic:.1f}")
+            parts.append(f"cyclomatic CC: {result.avg_cyclomatic:.1f}")
         if result.maintainability_index is not None:
-            parts.append(f"MI {result.maintainability_index:.1f}")
+            parts.append(f"MI: {result.maintainability_index:.1f}")
         return ", ".join(parts) or "—"
 
     if isinstance(result, DependencyHealthResult):
@@ -237,6 +248,30 @@ def _collector_detail(result: CollectorResult) -> str:
     if isinstance(result, RequirementsCoverageResult):
         return (
             f"{result.covered_requirements}/{result.total_requirements} requirements covered"
+        )
+
+    if isinstance(result, StaticAnalysisResult):
+        if result.error_density is not None:
+            return f"{result.total_errors} errors, {result.error_density:.1f}/1k lines"
+        return f"{result.total_errors} errors"
+
+    if isinstance(result, TypeCoverageResult):
+        detail = f"{result.total_errors} mypy errors"
+        if result.files_checked:
+            detail += f" ({result.files_checked} files)"
+        return detail
+
+    if isinstance(result, DeadCodeResult):
+        if result.unused_density is not None:
+            return f"{result.unused_items} unused items, {result.unused_density:.1f}/1k lines"
+        return f"{result.unused_items} unused items"
+
+    if isinstance(result, MutationTestingResult):
+        if result.total_mutants == 0:
+            return "no mutants generated"
+        pct = (result.killed_mutants / result.total_mutants) * 100
+        return (
+            f"{result.killed_mutants}/{result.total_mutants} mutants killed ({pct:.0f}%)"
         )
 
     return str(result.details) if result.details else "—"
