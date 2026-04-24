@@ -23,7 +23,7 @@ ruff format .
 mypy forge/
 ```
 
-Coverage threshold is 80%. Templates at `forge/scaffolder/templates/*` are excluded from coverage.
+Coverage threshold is 80%.
 
 ## Architecture
 
@@ -46,11 +46,42 @@ Default weights: `test_metrics=0.35`, `complexity=0.25`, `dependency_health=0.25
 | `forge/aggregator.py` | Runs all collectors, assembles `ProjectHealthReport` |
 | `forge/models.py` | Pydantic v2 models: `ProjectHealthReport`, `CollectorWeights`, 4 `CollectorResult` subclasses |
 | `forge/config.py` | Loads `forge.toml` into `ForgeConfig`; provides defaults if file absent |
-| `forge/collectors/test_metrics.py` | Runs pytest + coverage.py subprocess |
+| `forge/collectors/test_metrics.py` | Runs pytest + coverage.py subprocess; auto-detects project Python |
 | `forge/collectors/complexity.py` | Runs radon for cyclomatic complexity + maintainability index |
-| `forge/collectors/dependency_health.py` | Runs pip-audit and parses CVE JSON |
-| `forge/collectors/requirements_coverage.py` | Regex-scans source for `REQ-\d+` tags |
+| `forge/collectors/dependency_health.py` | Runs pip-audit; skips if no `requirements.txt` or `pyproject.toml` found |
+| `forge/collectors/requirements_coverage.py` | YAML mode (preferred) or regex fallback — see below |
 | `forge/scaffolder/engine.py` | Creates new project trees from templates using `$VAR` substitution |
+
+## Non-obvious collector behaviour
+
+**`RequirementsCoverageCollector`** operates in two modes selected automatically:
+- **YAML mode** (preferred): if the target project has `docs/requirements.yaml` (or `requirements.yaml` at root), requirement IDs are read from `- id:` fields. Any prefix works (`DAT-001`, `SYS-002`, etc.). Coverage = IDs referenced in at least one test file ÷ total IDs.
+- **Regex fallback**: if no YAML file exists, scans source files for tags matching `tag_pattern` (default `REQ-\d+`) and checks which appear in test files.
+
+**`TestMetricsCollector`** auto-detects the Python interpreter for the target project in this order: project `.venv/bin/python` → conda env named in `environment.yaml`/`environment.yml` → `sys.executable`. Override with `--python` on the CLI or `[test_runner] python = "..."` in the target project's `forge.toml`.
+
+## forge.toml (in the analyzed project, not forge itself)
+
+```toml
+[project]
+name = "my-project"
+
+[weights]
+test_metrics = 0.35
+complexity = 0.25
+dependency_health = 0.25
+requirements_coverage = 0.15
+
+[thresholds]
+overall = 0.70
+coverage = 0.80
+
+[collectors.requirements]
+tag_pattern = "REQ-\\d+"   # only used when no requirements.yaml found
+
+[test_runner]
+python = "/path/to/env/bin/python"   # overrides auto-detection
+```
 
 ## Tests
 
@@ -59,4 +90,4 @@ Default weights: `test_metrics=0.35`, `complexity=0.25`, `dependency_health=0.25
 
 ## Requirements traceability
 
-`docs/REQUIREMENTS.md` defines REQ-001 through REQ-010. Source files reference these with inline `REQ-NNN` tags, which `RequirementsCoverageCollector` scans for. When adding new features, tag them if they correspond to a requirement.
+`docs/REQUIREMENTS.md` defines REQ-001 through REQ-010 for forge itself. Source files reference these with inline `REQ-NNN` tags. When adding new features, tag them if they correspond to a requirement.
