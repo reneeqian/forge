@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forge-utils"
+version = "0.1.0"
+description = "Personal project automation toolkit — health metrics, scaffolding, and workflow utilities"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Renee Qian" }]
+
+dependencies = [
+    "pydantic>=2.0",
+    "typer>=0.12",
+    "rich>=13.0",
+    "toml>=0.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pre-commit>=3.0",
+]
+collectors = [
+    "coverage>=7.0",
+    "radon>=6.0",
+    "pip-audit>=2.0",
+    "pygithub>=2.0",
+]
+all = ["forge-utils[dev,collectors]"]
+
+[project.scripts]
+forge = "forge.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["forge"]
+
+# ── Ruff (lint + format) ─────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ── Mypy ─────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+# ── Pytest ───────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=forge --cov-report=term-missing --cov-report=json -v"
+markers = [
+    "unit: pure unit tests, no filesystem access",
+    "integration: tests that touch the filesystem or subprocesses",
+]
+
+[tool.coverage.run]
+source = ["forge"]
+omit = ["forge/scaffolder/templates/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

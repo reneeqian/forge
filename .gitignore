@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.pyo
+
+# Environments
+.env
+.venv
+env/
+
+# Coverage
+.coverage
+coverage.json
+htmlcov/
+.forge_coverage.json
+
+# MyPy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Forge outputs
+forge-report.json
+artifacts/
