@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from string import Template
 
+from forge.scaffolder.github_setup import GitHubConfig, GitHubSetup, GitHubSetupResult
+
 
 @dataclass
 class ScaffoldConfig:
@@ -20,12 +22,14 @@ class ScaffoldConfig:
     license_type: str = "MIT"
     author: str = ""
     git_init: bool = True
+    github: GitHubConfig | None = None
 
 
 @dataclass
 class ScaffoldResult:
     project_path: Path
     created_files: list[Path] = field(default_factory=list)
+    github: GitHubSetupResult | None = None
 
 
 class ScaffoldEngine:
@@ -62,6 +66,9 @@ class ScaffoldEngine:
                 )
             except FileNotFoundError:
                 pass  # git not available — non-fatal
+
+        if config.github is not None:
+            result.github = GitHubSetup().run(dest, config.github)
 
         return result
 
@@ -303,8 +310,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
+    branches: [dev, main]
 
 jobs:
   test:
