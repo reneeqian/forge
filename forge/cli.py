@@ -21,6 +21,7 @@ from rich import box
 from forge.aggregator import Aggregator
 from forge.models import CollectorResult, ProjectHealthReport
 from forge.scaffolder.engine import ScaffoldConfig, ScaffoldEngine
+from forge.scaffolder.github_setup import GitHubConfig
 
 app = typer.Typer(
     name="forge",
@@ -94,6 +95,9 @@ def new(
     license_type: str = typer.Option("MIT", "--license", "-l", help="License type."),
     author: str = typer.Option("", "--author", "-a", help="Author name."),
     no_git: bool = typer.Option(False, "--no-git", help="Skip git init."),
+    github: bool = typer.Option(False, "--github", "-g", help="Create GitHub repo with branch policy (requires gh CLI)."),
+    private: bool = typer.Option(False, "--private", help="Make the GitHub repo private."),
+    description: str = typer.Option("", "--description", help="GitHub repo description."),
 ) -> None:
     """Scaffold a new project with standard structure. REQ-009"""
     dest = destination.resolve() / name
@@ -109,6 +113,7 @@ def new(
         license_type=license_type,
         author=author,
         git_init=not no_git,
+        github=GitHubConfig(create_repo=True, private=private, description=description) if github else None,
     )
 
     with console.status(f"[bold cyan]Creating {name}…[/bold cyan]"):
@@ -116,6 +121,15 @@ def new(
         result = engine.create(config)
 
     console.print(f"\n[bold green]✓[/bold green] Project created at [cyan]{dest}[/cyan]\n")
+
+    if result.github is not None:
+        if result.github.ok:
+            console.print(f"[bold green]✓[/bold green] GitHub repo ready: [cyan]{result.github.repo_url}[/cyan]")
+            console.print("  [dim]main[/dim] — PR required (ruleset active)")
+            console.print("  [dim]dev[/dim]  — direct pushes allowed\n")
+        else:
+            for err in result.github.errors:
+                console.print(f"[yellow]⚠[/yellow]  GitHub setup: {err}")
 
     tree_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     tree_table.add_column(style="dim")
