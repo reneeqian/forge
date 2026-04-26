@@ -23,7 +23,25 @@ ruff format .
 mypy forge/
 ```
 
-Coverage threshold is 80%.
+Coverage threshold is 80%. Pre-commit hooks run ruff (lint + format) automatically on commit.
+
+## CLI reference
+
+```bash
+# Health check
+forge health <path>             # run all collectors, print report
+forge health <path> --python /path/to/python   # override interpreter for running tests
+forge health <path> --output report.json        # also write JSON
+forge health <path> --json                      # raw JSON to stdout only
+
+# Scaffold
+forge new <name>                # scaffold with git init
+forge new <name> --github       # also create GitHub repo + dev branch + main ruleset
+forge new <name> --github --private             # make repo private
+forge new <name> --github --description "..."   # set repo description
+forge new <name> --no-git       # skip git init
+forge new <name> --dest ~/Projects              # parent directory
+```
 
 ## Architecture
 
@@ -59,6 +77,7 @@ Default weights: `test_metrics=0.30`, `complexity=0.15`, `dependency_health=0.20
 | `forge/collectors/dead_code.py` | Runs vulture ≥80% confidence; density-based score |
 | `forge/collectors/mutation_testing.py` | Runs mutmut; disabled by default (very slow) |
 | `forge/scaffolder/engine.py` | Creates new project trees from templates using `$VAR` substitution |
+| `forge/scaffolder/github_setup.py` | Creates GitHub repo, commits, pushes, creates `dev` branch, applies main branch ruleset via `gh` CLI |
 
 ## Non-obvious collector behaviour
 
@@ -99,10 +118,30 @@ enabled = false   # set to true to run mutmut (very slow — 30+ min)
 python = "/path/to/env/bin/python"   # overrides auto-detection
 ```
 
+## GitHub setup (`forge new --github`)
+
+`GitHubSetup.run()` executes these steps in order, stopping on first error:
+1. `_initial_local_commit` — `git add .` + `git commit` (must happen before remote creation)
+2. `_create_repo` — `gh repo create <name> --source <abs_path>` (sets up `origin` remote)
+3. `_push_to_remote` — `git push -u origin main`
+4. `_create_dev_branch` — creates `dev` branch via GitHub API pointing at `main`'s SHA
+5. `_apply_main_ruleset` — POSTs a ruleset to protect `main`: requires PR, forbids deletion and force-push
+6. `_update_ci_workflow` — rewrites `.github/workflows/ci.yml` push trigger from `main` to `dev`
+
+All subprocess calls go through `_run(cmd, stdin=None)` which returns stdout or `None` on failure. JSON API calls use `_run_json`. Requires `gh` CLI authenticated via `gh auth login`.
+
+## Branch and PR policy
+
+**main** — no direct pushes; all changes via pull request (enforced by GitHub ruleset).
+**dev** — direct pushes allowed; preferred workflow is feature branch → PR → dev.
+
+For changes to forge itself: create a feature branch from `dev`, open a PR targeting `dev`, then open a separate `dev → main` PR when ready to ship.
+
 ## Tests
 
 - `tests/unit/` — pure unit tests using mocks, marked `@pytest.mark.unit`
 - `tests/integration/` — filesystem + subprocess tests, marked `@pytest.mark.integration`
+- `GitHubSetup` tests in `tests/unit/test_github_setup.py` mock all subprocess calls with `patch.object(GitHubSetup, "_run", ...)` — never make real network calls
 
 ## Requirements traceability
 
