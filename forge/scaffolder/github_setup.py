@@ -42,15 +42,19 @@ class GitHubSetup:
             result.errors.append("gh CLI not found — skipping GitHub setup")
             return result
 
+        # Commit locally first — gh repo create --push requires existing commits
+        self._initial_local_commit(project_path, result)
+        if not result.ok:
+            return result
+
         if config.create_repo:
-            url = self._create_repo(name, config, result)
+            url = self._create_repo(name, project_path, config, result)
             if not result.ok:
                 return result
             result.repo_url = url
-
-        self._initial_commit_and_push(project_path, result)
-        if not result.ok:
-            return result
+            self._push_to_remote(project_path, result)
+            if not result.ok:
+                return result
 
         self._create_dev_branch(name, result)
         if not result.ok:
@@ -63,8 +67,9 @@ class GitHubSetup:
 
     # ── steps ────────────────────────────────────────────────────────────────
 
-    def _create_repo(self, name: str, config: GitHubConfig, result: GitHubSetupResult) -> str:
-        cmd = ["gh", "repo", "create", name, "--source", ".", "--push"]
+    def _create_repo(self, name: str, project_path: Path, config: GitHubConfig, result: GitHubSetupResult) -> str:
+        # --source sets up origin remote; omit --push to push as a separate step
+        cmd = ["gh", "repo", "create", name, "--source", str(project_path)]
         cmd += ["--private"] if config.private else ["--public"]
         if config.description:
             cmd += ["--description", config.description]
@@ -73,14 +78,17 @@ class GitHubSetup:
         if out is None:
             result.errors.append("gh repo create failed")
             return ""
-        # gh repo create prints the repo URL to stdout
         return out.strip()
 
-    def _initial_commit_and_push(self, project_path: Path, result: GitHubSetupResult) -> None:
+    def _push_to_remote(self, project_path: Path, result: GitHubSetupResult) -> None:
+        cmd = ["git", "-C", str(project_path), "push", "-u", "origin", "main"]
+        if self._run(cmd) is None:
+            result.errors.append("Command failed: push -u origin main")
+
+    def _initial_local_commit(self, project_path: Path, result: GitHubSetupResult) -> None:
         cmds = [
             ["git", "-C", str(project_path), "add", "."],
             ["git", "-C", str(project_path), "commit", "-m", "chore: initial scaffold"],
-            ["git", "-C", str(project_path), "push", "-u", "origin", "main"],
         ]
         for cmd in cmds:
             if self._run(cmd) is None:

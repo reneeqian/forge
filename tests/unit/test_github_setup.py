@@ -93,8 +93,9 @@ class TestGitHubSetupRun:
 
     def test_error_propagates_from_create_repo(self, tmp_path):
         with patch.object(GitHubSetup, "_gh_available", return_value=True), \
+             patch.object(GitHubSetup, "_initial_local_commit"), \
              patch.object(GitHubSetup, "_create_repo", return_value="") as mock_create:
-            def _set_error(name, config, result):
+            def _set_error(name, path, config, result):
                 result.errors.append("gh repo create failed")
                 return ""
             mock_create.side_effect = _set_error
@@ -110,8 +111,9 @@ class TestGitHubSetupRun:
         )
 
         with patch.object(GitHubSetup, "_gh_available", return_value=True), \
+             patch.object(GitHubSetup, "_initial_local_commit"), \
              patch.object(GitHubSetup, "_create_repo", return_value="https://github.com/u/p"), \
-             patch.object(GitHubSetup, "_initial_commit_and_push"), \
+             patch.object(GitHubSetup, "_push_to_remote"), \
              patch.object(GitHubSetup, "_create_dev_branch"), \
              patch.object(GitHubSetup, "_apply_main_ruleset"):
             result = GitHubSetup().run(tmp_path, GitHubConfig())
@@ -140,21 +142,21 @@ class TestUpdateCiWorkflow:
         GitHubSetup()._update_ci_workflow(tmp_path)  # should not raise
 
 
-# ── _initial_commit_and_push ──────────────────────────────────────────────────
+# ── _initial_local_commit ─────────────────────────────────────────────────────
 
-class TestInitialCommitAndPush:
+class TestInitialLocalCommit:
     def test_success(self, tmp_path):
         with patch.object(GitHubSetup, "_run", return_value="ok"):
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._initial_commit_and_push(tmp_path, result)
+            GitHubSetup()._initial_local_commit(tmp_path, result)
         assert not result.errors
 
     def test_sets_error_on_git_failure(self, tmp_path):
         with patch.object(GitHubSetup, "_run", return_value=None):
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._initial_commit_and_push(tmp_path, result)
+            GitHubSetup()._initial_local_commit(tmp_path, result)
         assert result.errors
 
     def test_stops_after_first_failure(self, tmp_path):
@@ -162,8 +164,26 @@ class TestInitialCommitAndPush:
         with patch.object(GitHubSetup, "_run", side_effect=side_effects) as mock_run:
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._initial_commit_and_push(tmp_path, result)
+            GitHubSetup()._initial_local_commit(tmp_path, result)
         assert mock_run.call_count == 1
+
+
+# ── _push_to_remote ───────────────────────────────────────────────────────────
+
+class TestPushToRemote:
+    def test_success(self, tmp_path):
+        with patch.object(GitHubSetup, "_run", return_value="ok"):
+            result = MagicMock()
+            result.errors = []
+            GitHubSetup()._push_to_remote(tmp_path, result)
+        assert not result.errors
+
+    def test_sets_error_on_failure(self, tmp_path):
+        with patch.object(GitHubSetup, "_run", return_value=None):
+            result = MagicMock()
+            result.errors = []
+            GitHubSetup()._push_to_remote(tmp_path, result)
+        assert result.errors
 
 
 # ── _create_dev_branch ────────────────────────────────────────────────────────
@@ -213,7 +233,7 @@ class TestCreateRepo:
         with patch.object(GitHubSetup, "_run", return_value="https://github.com/u/p\n") as mock_run:
             result = MagicMock()
             result.errors = []
-            url = GitHubSetup()._create_repo("myproj", GitHubConfig(private=False), result)
+            url = GitHubSetup()._create_repo("myproj", tmp_path, GitHubConfig(private=False), result)
         cmd = mock_run.call_args[0][0]
         assert "--public" in cmd
         assert "--private" not in cmd
@@ -223,20 +243,20 @@ class TestCreateRepo:
         with patch.object(GitHubSetup, "_run", return_value="https://github.com/u/p\n"):
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._create_repo("myproj", GitHubConfig(private=True), result)
+            GitHubSetup()._create_repo("myproj", tmp_path, GitHubConfig(private=True), result)
 
-    def test_sets_error_on_failure(self):
+    def test_sets_error_on_failure(self, tmp_path):
         with patch.object(GitHubSetup, "_run", return_value=None):
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._create_repo("myproj", GitHubConfig(), result)
+            GitHubSetup()._create_repo("myproj", tmp_path, GitHubConfig(), result)
         assert result.errors
 
-    def test_includes_description(self):
+    def test_includes_description(self, tmp_path):
         with patch.object(GitHubSetup, "_run", return_value="url\n") as mock_run:
             result = MagicMock()
             result.errors = []
-            GitHubSetup()._create_repo("p", GitHubConfig(description="My desc"), result)
+            GitHubSetup()._create_repo("p", tmp_path, GitHubConfig(description="My desc"), result)
         cmd = mock_run.call_args[0][0]
         assert "--description" in cmd
         assert "My desc" in cmd
