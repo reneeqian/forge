@@ -104,6 +104,7 @@ class ScaffoldEngine:
             # GitHub Actions
             ".github/workflows/ci.yml": self._render(_CI_WORKFLOW, v),
             ".github/workflows/forge-health.yml": self._render(_FORGE_HEALTH_WORKFLOW, v),
+            ".github/workflows/auto-merge.yml": self._render(_AUTO_MERGE_WORKFLOW, v),
         }
 
     def _render(self, template: str, vars: dict[str, str]) -> str:
@@ -350,4 +351,31 @@ jobs:
         with:
           name: forge-health-report
           path: forge-report.json
+'''
+
+_AUTO_MERGE_WORKFLOW = '''\
+name: Auto-merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches:
+      - dev
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  enable-auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable auto-merge
+        run: gh pr merge --auto --merge "$${{ github.event.pull_request.number }}"
+        env:
+          GH_TOKEN: $${{ github.token }}
 '''

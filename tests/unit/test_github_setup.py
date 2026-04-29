@@ -103,43 +103,18 @@ class TestGitHubSetupRun:
         assert not result.ok
 
     def test_full_success(self, tmp_path):
-        # Create a minimal CI workflow so _update_ci_workflow has something to rewrite
-        wf_dir = tmp_path / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        (wf_dir / "ci.yml").write_text(
-            "on:\n  push:\n    branches: [main]\n  pull_request:\n"
-        )
-
         with patch.object(GitHubSetup, "_gh_available", return_value=True), \
              patch.object(GitHubSetup, "_initial_local_commit"), \
              patch.object(GitHubSetup, "_create_repo", return_value="https://github.com/u/p"), \
              patch.object(GitHubSetup, "_push_to_remote"), \
              patch.object(GitHubSetup, "_create_dev_branch"), \
-             patch.object(GitHubSetup, "_apply_main_ruleset"):
+             patch.object(GitHubSetup, "_apply_main_ruleset"), \
+             patch.object(GitHubSetup, "_apply_dev_ruleset"), \
+             patch.object(GitHubSetup, "_enable_auto_merge_setting"):
             result = GitHubSetup().run(tmp_path, GitHubConfig())
 
         assert result.ok
         assert result.repo_url == "https://github.com/u/p"
-
-
-# ── _update_ci_workflow ───────────────────────────────────────────────────────
-
-class TestUpdateCiWorkflow:
-    def test_rewrites_push_trigger(self, tmp_path):
-        wf_dir = tmp_path / ".github" / "workflows"
-        wf_dir.mkdir(parents=True)
-        ci = wf_dir / "ci.yml"
-        ci.write_text(
-            "on:\n  push:\n    branches: [main]\n  pull_request:\nrest: stuff\n"
-        )
-        GitHubSetup()._update_ci_workflow(tmp_path)
-        content = ci.read_text()
-        assert "branches: [dev]" in content
-        assert "branches: [dev, main]" in content
-        assert "branches: [main]\n  pull_request:" not in content
-
-    def test_no_op_when_ci_yml_missing(self, tmp_path):
-        GitHubSetup()._update_ci_workflow(tmp_path)  # should not raise
 
 
 # ── _initial_local_commit ─────────────────────────────────────────────────────
@@ -277,6 +252,10 @@ class TestApplyMainRuleset:
         assert "pull_request" in rule_types
         assert "deletion" in rule_types
         assert "non_fast_forward" in rule_types
+        pr_rule = next(r for r in stdin_data["rules"] if r["type"] == "pull_request")
+        assert pr_rule["parameters"]["required_approving_review_count"] == 1
+        bypass = stdin_data.get("bypass_actors", [])
+        assert any(a["actor_type"] == "RepositoryRole" for a in bypass)
 
     def test_sets_error_when_owner_lookup_fails(self):
         result = MagicMock()
@@ -291,4 +270,63 @@ class TestApplyMainRuleset:
         with patch.object(GitHubSetup, "_run", return_value="myuser\n"), \
              patch.object(GitHubSetup, "_run_json", return_value=None):
             GitHubSetup()._apply_main_ruleset("myrepo", result)
+        assert result.errors
+
+
+# ── _apply_dev_ruleset ────────────────────────────────────────────────────────
+
+class TestApplyDevRuleset:
+    def test_posts_required_status_check_for_test_job(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", return_value="myuser\n"), \
+             patch.object(GitHubSetup, "_run_json", return_value={"id": 2}) as mock_json:
+            GitHubSetup()._apply_dev_ruleset("myrepo", result)
+        cmd, kwargs = mock_json.call_args
+        stdin_data = json.loads(kwargs.get("stdin") or cmd[1].get("stdin", "{}"))
+        assert stdin_data["conditions"]["ref_name"]["include"] == ["refs/heads/dev"]
+        checks = stdin_data["rules"][0]["parameters"]["required_status_checks"]
+        assert any(c["context"] == "test" for c in checks)
+        assert not result.errors
+
+    def test_sets_error_when_owner_lookup_fails(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", return_value=None):
+            GitHubSetup()._apply_dev_ruleset("myrepo", result)
+        assert result.errors
+
+    def test_sets_error_when_api_fails(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", return_value="myuser\n"), \
+             patch.object(GitHubSetup, "_run_json", return_value=None):
+            GitHubSetup()._apply_dev_ruleset("myrepo", result)
+        assert result.errors
+
+
+# ── _enable_auto_merge_setting ────────────────────────────────────────────────
+
+class TestEnableAutoMergeSetting:
+    def test_patches_allow_auto_merge(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", return_value="myuser\n") as mock_run:
+            GitHubSetup()._enable_auto_merge_setting("myrepo", result)
+        calls = [" ".join(c[0][0]) for c in mock_run.call_args_list]
+        assert any("allow_auto_merge=true" in c for c in calls)
+        assert not result.errors
+
+    def test_sets_error_when_owner_lookup_fails(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", return_value=None):
+            GitHubSetup()._enable_auto_merge_setting("myrepo", result)
+        assert result.errors
+
+    def test_sets_error_when_patch_fails(self):
+        result = MagicMock()
+        result.errors = []
+        with patch.object(GitHubSetup, "_run", side_effect=["myuser\n", None]):
+            GitHubSetup()._enable_auto_merge_setting("myrepo", result)
         assert result.errors
