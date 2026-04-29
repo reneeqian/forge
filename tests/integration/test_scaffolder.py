@@ -94,10 +94,17 @@ class TestScaffoldEngine:
 
     def test_creates_github_workflows(self, engine, basic_config):
         engine.create(basic_config)
-        ci = basic_config.destination / ".github" / "workflows" / "ci.yml"
-        health = basic_config.destination / ".github" / "workflows" / "forge-health.yml"
-        assert ci.exists()
-        assert health.exists()
+        wf = basic_config.destination / ".github" / "workflows"
+        assert (wf / "ci.yml").exists()
+        assert (wf / "forge-health.yml").exists()
+        assert (wf / "auto-merge.yml").exists()
+
+    def test_auto_merge_workflow_targets_dev(self, engine, basic_config):
+        engine.create(basic_config)
+        content = (basic_config.destination / ".github" / "workflows" / "auto-merge.yml").read_text()
+        assert "branches:" in content
+        assert "- dev" in content
+        assert "gh pr merge --auto" in content
 
     def test_creates_docs_requirements(self, engine, basic_config):
         engine.create(basic_config)
