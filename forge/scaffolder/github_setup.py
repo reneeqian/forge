@@ -61,7 +61,8 @@ class GitHubSetup:
             return result
 
         self._apply_main_ruleset(name, result)
-        self._update_ci_workflow(project_path)
+        self._apply_dev_ruleset(name, result)
+        self._enable_auto_merge_setting(name, result)
 
         return result
 
@@ -134,7 +135,25 @@ class GitHubSetup:
             "rules": [
                 {"type": "deletion"},
                 {"type": "non_fast_forward"},
-                {"type": "pull_request"},
+                {
+                    "type": "pull_request",
+                    "parameters": {
+                        "required_approving_review_count": 1,
+                        "dismiss_stale_reviews_on_push": True,
+                        "required_reviewers": [],
+                        "require_code_owner_review": False,
+                        "require_last_push_approval": False,
+                        "required_review_thread_resolution": False,
+                        "allowed_merge_methods": ["merge", "squash", "rebase"],
+                    },
+                },
+            ],
+            "bypass_actors": [
+                {
+                    "actor_id": 5,
+                    "actor_type": "RepositoryRole",
+                    "bypass_mode": "always",
+                }
             ],
         }
 
@@ -147,22 +166,54 @@ class GitHubSetup:
         if out is None:
             result.errors.append("Could not apply main branch ruleset")
 
-    def _update_ci_workflow(self, project_path: Path) -> None:
-        """Rewrite the CI workflow to match the branch policy."""
-        ci_path = project_path / ".github" / "workflows" / "ci.yml"
-        if not ci_path.exists():
+    def _apply_dev_ruleset(self, repo_name: str, result: GitHubSetupResult) -> None:
+        owner = self._run(["gh", "api", "user", "--jq", ".login"])
+        if owner is None:
+            result.errors.append("Could not resolve GitHub username for dev ruleset")
             return
-        content = ci_path.read_text()
-        # Replace push trigger to target dev, add pull_request targeting dev and main
-        old = "on:\n  push:\n    branches: [main]\n  pull_request:"
-        new = (
-            "on:\n"
-            "  push:\n"
-            "    branches: [dev]\n"
-            "  pull_request:\n"
-            "    branches: [dev, main]"
-        )
-        ci_path.write_text(content.replace(old, new))
+        owner = owner.strip()
+
+        ruleset = {
+            "name": "Dev branch — require CI before auto-merge",
+            "target": "branch",
+            "enforcement": "active",
+            "conditions": {
+                "ref_name": {"include": ["refs/heads/dev"], "exclude": []}
+            },
+            "rules": [
+                {
+                    "type": "required_status_checks",
+                    "parameters": {
+                        "required_status_checks": [{"context": "test"}],
+                        "strict_required_status_checks_policy": False,
+                    },
+                }
+            ],
+        }
+
+        out = self._run_json([
+            "gh", "api", "--method", "POST",
+            f"repos/{owner}/{repo_name}/rulesets",
+            "--input", "-",
+        ], stdin=json.dumps(ruleset))
+
+        if out is None:
+            result.errors.append("Could not apply dev branch ruleset")
+
+    def _enable_auto_merge_setting(self, repo_name: str, result: GitHubSetupResult) -> None:
+        owner = self._run(["gh", "api", "user", "--jq", ".login"])
+        if owner is None:
+            result.errors.append("Could not resolve GitHub username for auto-merge setting")
+            return
+        owner = owner.strip()
+
+        out = self._run([
+            "gh", "api", "--method", "PATCH",
+            f"repos/{owner}/{repo_name}",
+            "--field", "allow_auto_merge=true",
+        ])
+        if out is None:
+            result.errors.append("Could not enable auto-merge on repository")
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
