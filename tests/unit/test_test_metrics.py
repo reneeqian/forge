@@ -1,4 +1,4 @@
-"""Unit tests for TestMetricsCollector — REQ-002."""
+"""Unit tests for TestMetricsCollector — COL-001."""
 
 import json
 from pathlib import Path

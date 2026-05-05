@@ -1,4 +1,4 @@
-"""Requirements coverage collector — REQ-005.
+"""Requirements coverage collector — COL-004.
 
 Two modes depending on what the target project provides:
 
@@ -29,7 +29,7 @@ _REQUIREMENTS_YAML_CANDIDATES = [
 class RequirementsCoverageCollector:
     """Trace requirement IDs from a requirements file (or source tags) into tests."""
 
-    DEFAULT_PATTERN = r"REQ-\d+"
+    DEFAULT_PATTERN = r"[A-Z]+-\d+"
 
     def collect(
         self,
@@ -146,7 +146,7 @@ class RequirementsCoverageCollector:
                 skipped=True,
                 skip_reason=(
                     f"No requirement tags matching '{tag_pattern}' found in source files. "
-                    "Add tags like '# REQ-001' to your source or docs."
+                    "Add tags like '# SYS-001' to your source or docs."
                 ),
             )
 

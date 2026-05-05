@@ -1,4 +1,4 @@
-"""Integration tests for ScaffoldEngine — REQ-009."""
+"""Integration tests for ScaffoldEngine — CLI-002."""
 
 from pathlib import Path
 

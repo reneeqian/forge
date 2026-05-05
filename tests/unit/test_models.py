@@ -1,4 +1,4 @@
-"""Unit tests for forge.models — REQ-001, REQ-006."""
+"""Unit tests for forge.models — SYS-001, COL-005."""
 
 import pytest
 from pydantic import ValidationError
@@ -116,7 +116,7 @@ class TestProjectHealthReport:
         assert "grade" in data
 
     def test_skipped_collector_excluded_from_score(self):
-        """REQ-010: skipped collectors should not drag down the overall score."""
+        """SYS-002: skipped collectors should not drag down the overall score."""
         report = ProjectHealthReport(
             project_name="x",
             project_path="/x",

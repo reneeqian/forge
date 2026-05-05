@@ -1,4 +1,4 @@
-"""Unit tests for ComplexityCollector — REQ-003."""
+"""Unit tests for ComplexityCollector — COL-002."""
 
 from pathlib import Path
 from unittest.mock import patch

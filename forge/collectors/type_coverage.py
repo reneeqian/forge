@@ -1,8 +1,8 @@
-"""Type coverage collector — REQ-012.
+"""Type coverage collector — COL-007.
 
 Uses mypy to count type errors. Count-based (not density-based) because
 mypy errors cascade — one badly-typed module can surface many downstream errors.
-Falls back gracefully if mypy is not installed (REQ-010).
+Falls back gracefully if mypy is not installed (SYS-002).
 """
 
 from __future__ import annotations
