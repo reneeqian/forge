@@ -1,7 +1,7 @@
-"""Code complexity collector — REQ-003.
+"""Code complexity collector — COL-002.
 
 Uses radon to compute cyclomatic complexity and maintainability index.
-Falls back gracefully if radon is not installed (REQ-010).
+Falls back gracefully if radon is not installed (SYS-002).
 """
 
 from __future__ import annotations

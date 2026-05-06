@@ -1,6 +1,6 @@
 """Forge project configuration loader.
 
-Reads forge.toml from a project directory (REQ-007).
+Reads forge.toml from a project directory (INF-001).
 Falls back to defaults when the file is absent or a key is missing.
 """
 
@@ -26,7 +26,7 @@ class ForgeConfig(BaseModel):
 
     project_name: str = ""
     weights: CollectorWeights = Field(default_factory=CollectorWeights)
-    requirements_tag_pattern: str = r"REQ-\d+"
+    requirements_tag_pattern: str = r"[A-Z]+-\d+"
 
     # Thresholds — informational only in M1/M2 (used by gate in M3)
     threshold_overall: float = Field(0.70, ge=0.0, le=1.0)
@@ -35,14 +35,14 @@ class ForgeConfig(BaseModel):
     # Optional: override the Python interpreter used to run tests
     python_executable: str = ""
 
-    # Mutation testing is disabled by default — it is very slow (REQ-015)
+    # Mutation testing is disabled by default — it is very slow (COL-010)
     mutation_testing_enabled: bool = False
 
 
 def load_config(project_path: Path) -> ForgeConfig:
     """Load forge.toml from *project_path*, returning defaults if absent.
 
-    REQ-007: If no forge.toml is present, all defaults are used.
+    INF-001: If no forge.toml is present, all defaults are used.
     """
     config_file = project_path / CONFIG_FILENAME
 

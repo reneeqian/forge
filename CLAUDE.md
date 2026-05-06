@@ -109,7 +109,7 @@ overall = 0.70
 coverage = 0.80
 
 [collectors.requirements]
-tag_pattern = "REQ-\\d+"   # only used when no requirements.yaml found
+tag_pattern = "[A-Z]+-\\d+"   # only used when no requirements.yaml found
 
 [collectors.mutation_testing]
 enabled = false   # set to true to run mutmut (very slow — 30+ min)
@@ -145,4 +145,12 @@ For changes to forge itself: create a feature branch from `dev`, open a PR targe
 
 ## Requirements traceability
 
-`docs/REQUIREMENTS.md` defines REQ-001 through REQ-010 for forge itself. Source files reference these with inline `REQ-NNN` tags. When adding new features, tag them if they correspond to a requirement.
+`docs/requirements.yaml` defines requirements for forge itself using domain-prefixed IDs (`SYS-NNN`, `COL-NNN`, `INF-NNN`, `CLI-NNN`). Source files reference these with inline tags. When adding new features, tag them if they correspond to a requirement.
+
+## Release Process
+
+1. Bump `version` in `pyproject.toml` (semver)
+2. Commit the version bump: `git commit -m "chore: bump version to X.Y.Z"`
+3. Tag and push: `git tag -a vX.Y.Z -m "Release vX.Y.Z"` then `git push origin vX.Y.Z`
+4. Create GitHub release: `gh release create vX.Y.Z --title "forge-utils X.Y.Z" --notes "..."`
+5. Update pinned ref in each consumer's `pyproject.toml` and CI workflow installs: `@vX.Y.Z`

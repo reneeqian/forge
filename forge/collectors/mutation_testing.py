@@ -1,9 +1,9 @@
-"""Mutation testing collector — REQ-014.
+"""Mutation testing collector — COL-009.
 
 Uses mutmut to compute the mutation score (killed / total mutants).
 Disabled by default — mutation testing is very slow on large projects.
-Enable via forge.toml: [collectors.mutation_testing] enabled = true (REQ-015).
-Falls back gracefully if mutmut is not installed (REQ-010).
+Enable via forge.toml: [collectors.mutation_testing] enabled = true (COL-010).
+Falls back gracefully if mutmut is not installed (SYS-002).
 """
 
 from __future__ import annotations

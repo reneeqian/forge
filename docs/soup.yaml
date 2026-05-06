@@ -1,0 +1,20 @@
+soup:
+  - name: pydantic
+    version: "2.12.5"
+    purpose: "Data validation and settings management for forge config objects"
+    license: MIT
+
+  - name: typer
+    version: "0.25.1"
+    purpose: "CLI argument parsing for the forge command-line interface"
+    license: MIT
+
+  - name: rich
+    version: "15.0.0"
+    purpose: "Terminal output formatting for health report display"
+    license: MIT
+
+  - name: toml
+    version: "0.10.2"
+    purpose: "Parsing forge and project configuration files"
+    license: MIT

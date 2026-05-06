@@ -1,0 +1,138 @@
+metadata:
+  project: forge
+  version: 0.1.0
+  description: >
+    forge-utils is a personal dev-toolkit for code quality grading and project
+    scaffolding. It measures health (test coverage, complexity, dependency CVEs,
+    requirements coverage, static analysis, type coverage, dead code, mutation
+    testing) and surfaces a weighted grade. It does not enforce FDA-level
+    compliance; that is the responsibility of regulatory_tools.
+
+requirements:
+
+  # ==============================
+  # System-Level Requirements
+  # ==============================
+
+  - id: SYS-001
+    title: Project Health Report Contract
+    description: >
+      The library shall produce a ProjectHealthReport for any given local
+      project path. The report shall include: project name, path, timestamp,
+      per-collector results, and an overall health score (0.0–1.0).
+
+  - id: SYS-002
+    title: Graceful Degradation
+    description: >
+      If a collector cannot run (missing tool, no tests found, etc.) it shall
+      return a result with score=None and a human-readable reason. The overall
+      score shall be computed from available collectors only.
+
+  # ==============================
+  # Collector Requirements
+  # ==============================
+
+  - id: COL-001
+    title: Test Metrics Collector
+    description: >
+      The library shall collect test metrics by running pytest with coverage.py
+      on the target project. It shall report: total tests, passed, failed,
+      skipped, pass rate (0–1), and line coverage percentage.
+
+  - id: COL-002
+    title: Code Complexity Collector
+    description: >
+      The library shall analyse code complexity using radon. It shall report:
+      average cyclomatic complexity, maintainability index, and a normalised
+      score (0–1) where higher = simpler/better.
+
+  - id: COL-003
+    title: Dependency Health Collector
+    description: >
+      The library shall audit dependencies using pip-audit. It shall report:
+      total dependencies audited, number with known CVEs, and a normalised
+      score (0–1).
+
+  - id: COL-004
+    title: Requirements Coverage Collector
+    description: >
+      The library shall scan source and test files for requirement tags. It
+      shall report: total unique requirements found, how many are referenced
+      in tests, and a coverage ratio (0–1). Preferred mode reads IDs from a
+      machine-readable requirements.yaml; regex fallback scans source tags.
+
+  - id: COL-005
+    title: Weighted Health Score
+    description: >
+      The overall health score shall be a weighted average of all collector
+      scores. Weights shall be configurable via forge.toml per project.
+      Default weights: test_metrics=0.30, complexity=0.15,
+      dependency_health=0.20, requirements_coverage=0.10,
+      static_analysis=0.10, type_coverage=0.10, dead_code=0.05,
+      mutation_testing=0.00.
+
+  - id: COL-006
+    title: Static Analysis Collector
+    description: >
+      The library shall analyse source code using ruff (preferred) or flake8
+      (fallback). It shall report: total lint errors, total Python lines,
+      error density (errors per 1000 lines), and a normalised score (0–1)
+      where 0 errors = 1.0.
+
+  - id: COL-007
+    title: Type Coverage Collector
+    description: >
+      The library shall check type annotations using mypy. It shall report:
+      total type errors, files checked, and a normalised score (0–1) where
+      0 errors = 1.0 and 100+ errors = 0.0.
+
+  - id: COL-008
+    title: Dead Code Collector
+    description: >
+      The library shall detect unused code using vulture at ≥80% confidence.
+      It shall report: unused item count, total Python lines, unused density
+      (items per 1000 lines), and a normalised score (0–1).
+
+  - id: COL-009
+    title: Mutation Testing Collector
+    description: >
+      When enabled, the library shall compute a mutation score using mutmut.
+      It shall report: total mutants generated, killed mutants, and mutation
+      score (killed / total, 0–1).
+
+  - id: COL-010
+    title: Mutation Testing Opt-In
+    description: >
+      Mutation testing shall be disabled by default due to its long runtime.
+      It shall be enabled per-project via forge.toml:
+      [collectors.mutation_testing] enabled = true.
+
+  # ==============================
+  # Infrastructure Requirements
+  # ==============================
+
+  - id: INF-001
+    title: forge.toml Configuration
+    description: >
+      Each project may include a forge.toml file. If absent, defaults shall
+      be used. The config shall support: custom weights, score thresholds,
+      and requirements tag pattern.
+
+  # ==============================
+  # CLI Requirements
+  # ==============================
+
+  - id: CLI-001
+    title: forge health Command
+    description: >
+      The CLI shall provide a forge health <path> command that runs all
+      collectors and prints a formatted summary to stdout. An --output flag
+      shall write the full report to a JSON file.
+
+  - id: CLI-002
+    title: forge new Command
+    description: >
+      The CLI shall provide a forge new <name> command that creates a new
+      project with: standard folder structure (src, tests, docs),
+      environment.yaml, pyproject.toml, forge.toml, .gitignore, README.md,
+      and a passing starter test.

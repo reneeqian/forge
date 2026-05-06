@@ -1,4 +1,4 @@
-"""Unit tests for forge.config — REQ-007."""
+"""Unit tests for forge.config — INF-001."""
 
 import textwrap
 from pathlib import Path
@@ -10,7 +10,7 @@ from forge.config import ForgeConfig, load_config
 
 class TestLoadConfig:
     def test_returns_defaults_when_no_forge_toml(self, tmp_path: Path):
-        """REQ-007: missing forge.toml → all defaults used."""
+        """INF-001: missing forge.toml → all defaults used."""
         config = load_config(tmp_path)
         assert isinstance(config, ForgeConfig)
         assert config.project_name == tmp_path.name
