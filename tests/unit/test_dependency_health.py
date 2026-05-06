@@ -1,4 +1,4 @@
-"""Unit tests for DependencyHealthCollector — REQ-004."""
+"""Unit tests for DependencyHealthCollector — COL-003."""
 
 import json
 from pathlib import Path

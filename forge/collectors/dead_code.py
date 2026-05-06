@@ -1,8 +1,8 @@
-"""Dead code collector — REQ-013.
+"""Dead code collector — COL-008.
 
 Uses vulture to detect unused code. Supports vulture's JSON output (v2.3+)
 with a plain-text line-count fallback.
-Falls back gracefully if vulture is not installed (REQ-010).
+Falls back gracefully if vulture is not installed (SYS-002).
 """
 
 from __future__ import annotations

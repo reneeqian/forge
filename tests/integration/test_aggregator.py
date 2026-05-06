@@ -1,4 +1,4 @@
-"""Integration tests for Aggregator — REQ-001, REQ-006, REQ-010."""
+"""Integration tests for Aggregator — SYS-001, COL-005, SYS-002."""
 
 from pathlib import Path
 from unittest.mock import patch
@@ -59,7 +59,7 @@ class TestAggregator:
         assert report.project_name == "custom-name"
 
     def test_graceful_with_all_skipped_collectors(self, empty_project: Path):
-        """REQ-010: if every collector skips, overall_score is None — no crash."""
+        """SYS-002: if every collector skips, overall_score is None — no crash."""
         agg = Aggregator()
         report = agg.run(empty_project)
         assert isinstance(report, ProjectHealthReport)

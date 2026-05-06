@@ -1,4 +1,4 @@
-"""Unit tests for RequirementsCoverageCollector — REQ-005."""
+"""Unit tests for RequirementsCoverageCollector — COL-004."""
 
 import textwrap
 from pathlib import Path

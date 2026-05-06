@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, computed_field, model_validator
 class CollectorResult(BaseModel):
     """Base result returned by every collector.
 
-    score is None when the collector could not run (REQ-010).
+    score is None when the collector could not run (SYS-002).
     """
 
     collector: str
@@ -29,7 +29,7 @@ class CollectorResult(BaseModel):
 
 
 class TestMetricsResult(CollectorResult):
-    """REQ-002 — pytest + coverage results."""
+    """COL-001 — pytest + coverage results."""
 
     collector: str = "test_metrics"
     total: int = 0
@@ -41,7 +41,7 @@ class TestMetricsResult(CollectorResult):
 
 
 class ComplexityResult(CollectorResult):
-    """REQ-003 — radon complexity results."""
+    """COL-002 — radon complexity results."""
 
     collector: str = "complexity"
     avg_cyclomatic: float | None = None
@@ -49,7 +49,7 @@ class ComplexityResult(CollectorResult):
 
 
 class DependencyHealthResult(CollectorResult):
-    """REQ-004 — pip-audit vulnerability results."""
+    """COL-003 — pip-audit vulnerability results."""
 
     collector: str = "dependency_health"
     total_packages: int = 0
@@ -58,7 +58,7 @@ class DependencyHealthResult(CollectorResult):
 
 
 class RequirementsCoverageResult(CollectorResult):
-    """REQ-005 — requirement tag traceability results."""
+    """COL-004 — requirement tag traceability results."""
 
     collector: str = "requirements_coverage"
     total_requirements: int = 0
@@ -67,7 +67,7 @@ class RequirementsCoverageResult(CollectorResult):
 
 
 class StaticAnalysisResult(CollectorResult):
-    """REQ-011 — ruff/flake8 static analysis results."""
+    """COL-006 — ruff/flake8 static analysis results."""
 
     collector: str = "static_analysis"
     total_errors: int = 0
@@ -76,7 +76,7 @@ class StaticAnalysisResult(CollectorResult):
 
 
 class TypeCoverageResult(CollectorResult):
-    """REQ-012 — mypy type checking results."""
+    """COL-007 — mypy type checking results."""
 
     collector: str = "type_coverage"
     total_errors: int = 0
@@ -84,7 +84,7 @@ class TypeCoverageResult(CollectorResult):
 
 
 class DeadCodeResult(CollectorResult):
-    """REQ-013 — vulture dead code detection results."""
+    """COL-008 — vulture dead code detection results."""
 
     collector: str = "dead_code"
     unused_items: int = 0
@@ -93,7 +93,7 @@ class DeadCodeResult(CollectorResult):
 
 
 class MutationTestingResult(CollectorResult):
-    """REQ-014 — mutmut mutation testing results (opt-in, REQ-015)."""
+    """COL-009 — mutmut mutation testing results (opt-in, COL-010)."""
 
     collector: str = "mutation_testing"
     total_mutants: int = 0
@@ -105,7 +105,7 @@ class MutationTestingResult(CollectorResult):
 
 
 class CollectorWeights(BaseModel):
-    """REQ-006 — configurable weights for the overall health score.
+    """COL-005 — configurable weights for the overall health score.
 
     Weights must sum to 1.0. Existing forge.toml files using the old
     4-collector layout (test_metrics + complexity + dependency_health +
@@ -150,7 +150,7 @@ _COLLECTOR_FIELDS = (
 
 
 class ProjectHealthReport(BaseModel):
-    """REQ-001 — full health report for a single project."""
+    """SYS-001 — full health report for a single project."""
 
     project_name: str
     project_path: str
@@ -188,7 +188,7 @@ class ProjectHealthReport(BaseModel):
     @computed_field  # type: ignore[misc]
     @property
     def overall_score(self) -> float | None:
-        """Weighted average of available collector scores (REQ-006, REQ-010)."""
+        """Weighted average of available collector scores (COL-005, SYS-002)."""
         weighted_sum = 0.0
         total_weight = 0.0
         for key in _COLLECTOR_FIELDS:

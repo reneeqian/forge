@@ -1,7 +1,7 @@
-"""Static analysis collector — REQ-011.
+"""Static analysis collector — COL-006.
 
 Uses ruff (preferred) or flake8 (fallback) to count lint errors.
-Falls back gracefully if neither tool is installed (REQ-010).
+Falls back gracefully if neither tool is installed (SYS-002).
 """
 
 from __future__ import annotations
