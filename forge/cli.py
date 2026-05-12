@@ -1,4 +1,4 @@
-"""Forge CLI — REQ-008, REQ-009, REQ-018.
+"""Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001.
 
 Entry point: `forge`
 Commands:
@@ -65,7 +65,7 @@ def health(
         help="Save timestamped JSON report to <project>/artifacts/health_runs/<timestamp>/health_report.json.",
     ),
 ) -> None:
-    """Run a full health check on a project. REQ-008, REQ-019"""
+    """Run a full health check on a project. CLI-001, CLI-003"""
     path = path.resolve()
 
     if not path.exists():
@@ -115,7 +115,7 @@ def new(
     private: bool = typer.Option(False, "--private", help="Make the GitHub repo private."),
     description: str = typer.Option("", "--description", help="GitHub repo description."),
 ) -> None:
-    """Scaffold a new project with standard structure. REQ-009"""
+    """Scaffold a new project with standard structure. CLI-002"""
     dest = destination.resolve() / name
 
     if dest.exists():

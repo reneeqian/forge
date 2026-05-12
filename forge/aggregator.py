@@ -1,4 +1,4 @@
-"""Forge aggregator — REQ-001, REQ-006.
+"""Forge aggregator — SYS-001, COL-005.
 
 Orchestrates all collectors and assembles a ProjectHealthReport.
 """

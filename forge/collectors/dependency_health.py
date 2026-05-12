@@ -1,7 +1,7 @@
-"""Dependency health collector — REQ-004.
+"""Dependency health collector — COL-003.
 
 Uses pip-audit to detect known CVEs in a project's dependencies.
-Falls back gracefully when pip-audit is absent (REQ-010).
+Falls back gracefully when pip-audit is absent (SYS-002).
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Scaffold engine — REQ-009.
+"""Scaffold engine — CLI-002.
 
 Creates a new project with standard structure, forge.toml, environment.yaml,
 pyproject.toml, .gitignore, README, and a passing starter test.

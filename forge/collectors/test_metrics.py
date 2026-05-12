@@ -1,4 +1,4 @@
-"""Test metrics collector — REQ-002.
+"""Test metrics collector — COL-001.
 
 Runs pytest with coverage.py in a subprocess and parses the results.
 Works on any project that has a pytest-compatible test suite.

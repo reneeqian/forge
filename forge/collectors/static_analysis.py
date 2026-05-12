@@ -1,4 +1,4 @@
-"""Static analysis collector — REQ-011.
+"""Static analysis collector — COL-006.
 
 Uses ruff (preferred) or flake8 (fallback) to count lint errors.
 Ruff violations are bucketed by fix applicability:
@@ -7,7 +7,7 @@ Ruff violations are bucketed by fix applicability:
   manual  — no fix available, requires manual work (weight 1.0)
 The score uses weighted error density so safe formatting noise
 penalises the score less than genuine logic issues.
-Falls back gracefully if neither tool is installed (REQ-010).
+Falls back gracefully if neither tool is installed (SYS-002).
 """
 
 from __future__ import annotations
