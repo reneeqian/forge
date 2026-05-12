@@ -75,9 +75,13 @@ requirements:
     title: Static Analysis Collector
     description: >
       The library shall analyse source code using ruff (preferred) or flake8
-      (fallback). It shall report: total lint errors, total Python lines,
-      error density (errors per 1000 lines), and a normalised score (0–1)
-      where 0 errors = 1.0.
+      (fallback). It shall bucket violations by fix applicability: safe
+      (auto-fixable, no behavior change), unsafe (auto-fixable, may change
+      behavior), and manual (no fix available). The score shall use a weighted
+      density formula (safe=0.3×, unsafe=0.7×, manual=1.0×) against a ceiling
+      of 50 weighted errors per 1000 lines, so formatting noise penalises the
+      score less than genuine logic issues. When using the flake8 fallback, all
+      errors are counted as manual.
 
   - id: COL-007
     title: Type Coverage Collector
@@ -136,3 +140,47 @@ requirements:
       project with: standard folder structure (src, tests, docs),
       environment.yaml, pyproject.toml, forge.toml, .gitignore, README.md,
       and a passing starter test.
+
+  - id: CLI-003
+    title: Health Run Artifacts
+    description: >
+      When invoked with --save-artifact, forge health shall write the full
+      JSON report to <project_path>/artifacts/health_runs/<YYYYMMDD_HHMMSS_ffffff>/
+      health_report.json, creating parent directories as needed. Each
+      invocation shall produce a unique timestamped directory, preserving
+      the full history of health runs for audit purposes.
+
+  # ==============================
+  # Workspace Requirements
+  # ==============================
+
+  - id: WRK-001
+    title: Workspace Status Models
+    description: >
+      The library shall provide BranchProtectionStatus, RulesetStatus,
+      RepoStatus, and WorkspaceStatusReport Pydantic models representing
+      the observed state of a multi-repo workspace. WorkspaceStatusReport
+      shall expose computed fields total_repos and repos_with_issues.
+
+  - id: WRK-002
+    title: Workspace Collector
+    description: >
+      The library shall provide a WorkspaceCollector that, given a
+      WorkspaceConfig, queries the GitHub API via the gh CLI and reads local
+      files to populate a WorkspaceStatusReport. It shall collect: repo
+      settings, classic branch protection, rulesets, local workflow files,
+      CODEOWNERS, dependabot.yml, current git branch, and last CI conclusion.
+      It shall degrade gracefully when gh is unavailable or API calls fail.
+      It shall implement a deterministic _compute_issues rule engine. When
+      run_health=True, it shall invoke forge health --json for each repo with
+      a configured local_path.
+
+  - id: WRK-003
+    title: forge workspace Command
+    description: >
+      The CLI shall expose a forge workspace <config> command that loads a
+      workspace.toml, runs WorkspaceCollector.collect_all(), and renders the
+      WorkspaceStatusReport using WorkspaceReporter. It shall support:
+      --markdown (print markdown to stdout), --output <path> (write markdown
+      to file), and --no-health (skip forge health collection). Health runs
+      by default. It shall exit 1 if the config file is not found.

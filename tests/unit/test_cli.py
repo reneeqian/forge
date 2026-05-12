@@ -1,22 +1,23 @@
-"""Unit tests for the Forge CLI — CLI-001, CLI-002."""
+"""Unit tests for the Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from typer.testing import CliRunner
 
-from forge.cli import app, _score_colour, _collector_detail
+from forge.cli import _collector_detail, _score_colour, app
 from forge.models import (
+    CollectorWeights,
     ComplexityResult,
     DependencyHealthResult,
     ProjectHealthReport,
+    RepoStatus,
     RequirementsCoverageResult,
+    StaticAnalysisResult,
     TestMetricsResult,
-    CollectorWeights,
+    WorkspaceStatusReport,
 )
 
 runner = CliRunner()
@@ -34,7 +35,7 @@ def _make_report(
     defaults = dict(
         project_name=project_name,
         project_path="/tmp/test-project",
-        generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017,
         weights=CollectorWeights(),
         test_metrics=TestMetricsResult(score=0.9, total=10, passed=9),
         complexity=ComplexityResult(score=0.8, avg_cyclomatic=2.5, maintainability_index=80.0),
@@ -97,7 +98,7 @@ class TestHealthCommand:
         report = ProjectHealthReport(
             project_name="bare",
             project_path=str(tmp_path),
-            generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+            generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017,
             weights=CollectorWeights(),
             test_metrics=TestMetricsResult(skipped=True, skip_reason="no tests"),
             complexity=ComplexityResult(skipped=True, skip_reason="no radon"),
@@ -110,6 +111,41 @@ class TestHealthCommand:
             MockAgg.return_value.run.return_value = report
             result = runner.invoke(app, ["health", str(tmp_path)])
         assert result.exit_code == 0
+
+    def test_save_artifact_creates_timestamped_dir(self, tmp_path):
+        report = _make_report()
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(app, ["health", str(tmp_path), "--save-artifact"])
+        assert result.exit_code == 0
+        health_runs = tmp_path / "artifacts" / "health_runs"
+        assert health_runs.is_dir()
+        run_dirs = list(health_runs.iterdir())
+        assert len(run_dirs) == 1
+        assert (run_dirs[0] / "health_report.json").exists()
+
+    def test_save_artifact_json_contains_project_name(self, tmp_path):
+        report = _make_report()
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            runner.invoke(app, ["health", str(tmp_path), "--save-artifact"])
+        health_runs = tmp_path / "artifacts" / "health_runs"
+        run_dir = next(health_runs.iterdir())
+        data = json.loads((run_dir / "health_report.json").read_text())
+        assert data["project_name"] == "test-project"
+
+    def test_save_artifact_and_output_both_work(self, tmp_path):
+        report = _make_report()
+        out_file = tmp_path / "report.json"
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(
+                app,
+                ["health", str(tmp_path), "--save-artifact", "--output", str(out_file)],
+            )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        assert (tmp_path / "artifacts" / "health_runs").is_dir()
 
 
 # ── forge new ─────────────────────────────────────────────────────────────────
@@ -202,3 +238,118 @@ class TestCollectorDetail:
         )
         detail = _collector_detail(r)
         assert "3/4" in detail
+
+    def test_static_analysis_shows_all_three_tiers(self):
+        r = StaticAnalysisResult(
+            score=0.8, safe_errors=39, unsafe_errors=10, manual_errors=40,
+            total_lines=1000, error_density=25.0,
+        )
+        detail = _collector_detail(r)
+        assert "39 safe" in detail
+        assert "10 unsafe" in detail
+        assert "40 manual" in detail
+
+    def test_static_analysis_omits_zero_tiers(self):
+        r = StaticAnalysisResult(score=0.9, safe_errors=5, total_lines=500, error_density=3.0)
+        detail = _collector_detail(r)
+        assert "unsafe" not in detail
+        assert "manual" not in detail
+        assert "5 safe" in detail
+
+    def test_static_analysis_density_labeled_weighted(self):
+        r = StaticAnalysisResult(
+            score=0.8, manual_errors=10, total_lines=1000, error_density=10.0
+        )
+        detail = _collector_detail(r)
+        assert "weighted" in detail
+
+
+# ── forge workspace ───────────────────────────────────────────────────────────
+
+
+def _make_workspace_report() -> WorkspaceStatusReport:
+    return WorkspaceStatusReport(
+        repos=[
+            RepoStatus(
+                name="medical_image_ai_toolkit",
+                owner="reneeqian",
+                repo_type="code",
+                visibility="public",
+                description="ML toolkit",
+                local_branch="dev",
+                auto_merge=True,
+                delete_on_merge=True,
+            )
+        ]
+    )
+
+
+class TestWorkspaceCommand:
+    def test_workspace_command_exists(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "r"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path)])
+        assert result.exit_code == 0
+
+    def test_exits_1_when_config_not_found(self, tmp_path):
+        result = runner.invoke(app, ["workspace", str(tmp_path / "no.toml")])
+        assert result.exit_code == 1
+
+    def test_renders_terminal_output_by_default(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path)])
+        assert result.exit_code == 0
+        assert "medical_image_ai_toolkit" in result.output
+
+    def test_markdown_flag_prints_markdown_to_stdout(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--markdown"])
+        assert result.exit_code == 0
+        assert "# Workspace Status Report" in result.output
+
+    def test_output_flag_writes_file(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        out_path = tmp_path / "out.md"
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--output", str(out_path)])
+        assert result.exit_code == 0
+        assert out_path.exists()
+        assert "# Workspace Status Report" in out_path.read_text()
+
+    def test_health_runs_by_default(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            runner.invoke(app, ["workspace", str(toml_path)])
+        MockColl.return_value.collect_all.assert_called_once_with(run_health=True)
+
+    def test_no_health_flag_skips_health(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            runner.invoke(app, ["workspace", str(toml_path), "--no-health"])
+        MockColl.return_value.collect_all.assert_called_once_with(run_health=False)

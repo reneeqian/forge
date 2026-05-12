@@ -1,27 +1,29 @@
-"""Forge CLI — CLI-001, CLI-002.
+"""Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001.
 
 Entry point: `forge`
 Commands:
-  forge health <path>   — run all collectors and print a report
-  forge new <name>      — scaffold a new project
+  forge health <path>         — run all collectors and print a report
+  forge new <name>            — scaffold a new project
+  forge workspace <toml>      — workspace-wide infrastructure status report
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 from forge.aggregator import Aggregator
 from forge.models import CollectorResult, ProjectHealthReport
 from forge.scaffolder.engine import ScaffoldConfig, ScaffoldEngine
 from forge.scaffolder.github_setup import GitHubConfig
+from forge.workspace.collector import WorkspaceCollector
+from forge.workspace.config import WorkspaceConfig
+from forge.workspace.reporter import WorkspaceReporter
 
 app = typer.Typer(
     name="forge",
@@ -42,7 +44,7 @@ def health(
         help="Path to the project to analyse. Defaults to current directory.",
         show_default=True,
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output", "-o",
         help="Write full JSON report to this file path.",
@@ -52,13 +54,18 @@ def health(
         "--json",
         help="Print raw JSON to stdout instead of the formatted table.",
     ),
-    python: Optional[str] = typer.Option(
+    python: str | None = typer.Option(
         None,
         "--python", "-P",
         help="Python interpreter to use for running tests (e.g. path to a conda env's python).",
     ),
+    save_artifact: bool = typer.Option(
+        False,
+        "--save-artifact",
+        help="Save timestamped JSON report to <project>/artifacts/health_runs/<timestamp>/health_report.json.",
+    ),
 ) -> None:
-    """Run a full health check on a project. CLI-001"""
+    """Run a full health check on a project. CLI-001, CLI-003"""
     path = path.resolve()
 
     if not path.exists():
@@ -78,6 +85,15 @@ def health(
     if output:
         output.write_text(report.model_dump_json(indent=2))
         console.print(f"\n[dim]Report written to {output}[/dim]")
+
+    if save_artifact:
+        import datetime as _dt
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S_%f")  # noqa: UP017
+        artifact_dir = path / "artifacts" / "health_runs" / ts
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_file = artifact_dir / "health_report.json"
+        artifact_file.write_text(report.model_dump_json(indent=2))
+        console.print(f"[dim]Artifact saved to {artifact_file}[/dim]")
 
 
 # ── forge new ────────────────────────────────────────────────────────────────
@@ -265,9 +281,17 @@ def _collector_detail(result: CollectorResult) -> str:
         )
 
     if isinstance(result, StaticAnalysisResult):
+        parts = []
+        if result.safe_errors:
+            parts.append(f"{result.safe_errors} safe")
+        if result.unsafe_errors:
+            parts.append(f"{result.unsafe_errors} unsafe")
+        if result.manual_errors:
+            parts.append(f"{result.manual_errors} manual")
+        breakdown = f" ({' · '.join(parts)})" if parts else ""
         if result.error_density is not None:
-            return f"{result.total_errors} errors, {result.error_density:.1f}/1k lines"
-        return f"{result.total_errors} errors"
+            return f"{result.total_errors} errors{breakdown}, {result.error_density:.1f}/1k lines (weighted)"
+        return f"{result.total_errors} errors{breakdown}"
 
     if isinstance(result, TypeCoverageResult):
         detail = f"{result.total_errors} mypy errors"
@@ -289,6 +313,54 @@ def _collector_detail(result: CollectorResult) -> str:
         )
 
     return str(result.details) if result.details else "—"
+
+
+# ── forge workspace ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def workspace(
+    config: Path = typer.Argument(
+        default=Path("workspace.toml"),
+        help="Path to workspace.toml config file.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output", "-o",
+        help="Write markdown report to this file.",
+    ),
+    markdown: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print markdown to stdout instead of Rich terminal tables.",
+    ),
+    no_health: bool = typer.Option(
+        False,
+        "--no-health",
+        help="Skip forge health collection (faster, omits grade column).",
+    ),
+) -> None:
+    """Generate a workspace-wide infrastructure status report. REQ-018"""
+    try:
+        cfg = WorkspaceConfig.load(config)
+    except FileNotFoundError:
+        console.print(f"[red]Config not found:[/red] {config}")
+        raise typer.Exit(1) from None
+
+    report = WorkspaceCollector(cfg).collect_all(run_health=not no_health)
+    reporter = WorkspaceReporter(report)
+
+    if output is not None:
+        md = reporter.to_markdown()
+        output.write_text(md)
+        console.print(f"[green]Report written to[/green] {output}")
+        return
+
+    if markdown:
+        typer.echo(reporter.to_markdown())
+        return
+
+    reporter.print_terminal(console=console)
 
 
 if __name__ == "__main__":

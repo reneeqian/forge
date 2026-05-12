@@ -1,6 +1,12 @@
 """Static analysis collector — COL-006.
 
 Uses ruff (preferred) or flake8 (fallback) to count lint errors.
+Ruff violations are bucketed by fix applicability:
+  safe    — auto-fixable with no behavior change (weight 0.3)
+  unsafe  — auto-fixable but may change behavior  (weight 0.7)
+  manual  — no fix available, requires manual work (weight 1.0)
+The score uses weighted error density so safe formatting noise
+penalises the score less than genuine logic issues.
 Falls back gracefully if neither tool is installed (SYS-002).
 """
 
@@ -13,7 +19,10 @@ from pathlib import Path
 
 from forge.models import StaticAnalysisResult
 
-_DENSITY_CEILING = 50.0  # errors per 1000 lines → score 0.0
+_SAFE_WEIGHT = 0.3
+_UNSAFE_WEIGHT = 0.7
+_MANUAL_WEIGHT = 1.0
+_DENSITY_CEILING = 50.0  # weighted errors per 1000 lines → score 0.0
 
 
 class StaticAnalysisCollector:
@@ -37,30 +46,37 @@ class StaticAnalysisCollector:
             )
 
         total_lines = self._count_python_lines(py_files)
-        errors = self._run_ruff(project_path)
+        ruff_result = self._run_ruff(project_path)
 
-        if errors is None:
-            errors = self._run_flake8(project_path)
+        if ruff_result is not None:
+            safe, unsafe, manual, by_rule = ruff_result
+        else:
+            flake8_count = self._run_flake8(project_path)
+            if flake8_count is None:
+                return StaticAnalysisResult(
+                    skipped=True,
+                    skip_reason="ruff not found — install with: pip install ruff",
+                )
+            safe, unsafe, manual, by_rule = 0, 0, flake8_count, {}
 
-        if errors is None:
-            return StaticAnalysisResult(
-                skipped=True,
-                skip_reason="ruff not found — install with: pip install ruff",
-            )
+        score = self._compute_score(safe, unsafe, manual, total_lines)
+        weighted = safe * _SAFE_WEIGHT + unsafe * _UNSAFE_WEIGHT + manual * _MANUAL_WEIGHT
+        density = weighted / max(total_lines, 1) * 1000
 
-        density = errors / max(total_lines, 1) * 1000
-        score = self._compute_score(errors, total_lines)
+        top_rules = dict(sorted(by_rule.items(), key=lambda x: -x[1])[:5])
 
         return StaticAnalysisResult(
             score=score,
-            total_errors=errors,
+            safe_errors=safe,
+            unsafe_errors=unsafe,
+            manual_errors=manual,
             total_lines=total_lines,
             error_density=round(density, 2),
-            details={"python_files_analysed": len(py_files)},
+            details={"python_files_analysed": len(py_files), "top_rules": top_rules},
         )
 
-    def _run_ruff(self, project_path: Path) -> int | None:
-        """Run ruff check and return error count, or None if ruff unavailable."""
+    def _run_ruff(self, project_path: Path) -> tuple[int, int, int, dict[str, int]] | None:
+        """Run ruff check and return (safe, unsafe, manual, by_rule), or None if unavailable."""
         try:
             proc = subprocess.run(
                 [sys.executable, "-m", "ruff", "check", "--output-format=json", str(project_path)],
@@ -72,7 +88,19 @@ class StaticAnalysisCollector:
             if proc.returncode not in (0, 1):
                 return None
             data = json.loads(proc.stdout or "[]")
-            return len(data)
+            safe = unsafe = manual = 0
+            by_rule: dict[str, int] = {}
+            for v in data:
+                fix = v.get("fix")
+                if fix is None:
+                    manual += 1
+                elif fix.get("applicability") == "safe":
+                    safe += 1
+                else:
+                    unsafe += 1
+                code = v.get("code") or "?"
+                by_rule[code] = by_rule.get(code, 0) + 1
+            return safe, unsafe, manual, by_rule
         except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
             return None
 
@@ -101,6 +129,7 @@ class StaticAnalysisCollector:
                 pass
         return total
 
-    def _compute_score(self, errors: int, total_lines: int) -> float:
-        density = errors / max(total_lines, 1) * 1000
+    def _compute_score(self, safe: int, unsafe: int, manual: int, total_lines: int) -> float:
+        weighted = safe * _SAFE_WEIGHT + unsafe * _UNSAFE_WEIGHT + manual * _MANUAL_WEIGHT
+        density = weighted / max(total_lines, 1) * 1000
         return round(max(0.0, 1.0 - min(density / _DENSITY_CEILING, 1.0)), 4)

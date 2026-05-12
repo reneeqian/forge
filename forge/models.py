@@ -1,7 +1,8 @@
-"""Core data models for Forge project health reports.
+"""Core data models for Forge project health reports and workspace status.
 
-All collector results and the top-level ProjectHealthReport are defined here.
-Using Pydantic v2 for validation and clean JSON serialisation.
+All collector results, the top-level ProjectHealthReport, and workspace
+status models (REQ-016) are defined here. Using Pydantic v2 for validation
+and clean JSON serialisation.
 """
 
 from __future__ import annotations
@@ -70,9 +71,16 @@ class StaticAnalysisResult(CollectorResult):
     """COL-006 — ruff/flake8 static analysis results."""
 
     collector: str = "static_analysis"
-    total_errors: int = 0
+    safe_errors: int = 0       # auto-fixable, no behavior change
+    unsafe_errors: int = 0     # auto-fixable, may change behavior
+    manual_errors: int = 0     # no fix available — requires manual work
     total_lines: int = 0
-    error_density: float | None = None  # errors per 1000 lines
+    error_density: float | None = None  # weighted errors per 1000 lines
+
+    @computed_field
+    @property
+    def total_errors(self) -> int:
+        return self.safe_errors + self.unsafe_errors + self.manual_errors
 
 
 class TypeCoverageResult(CollectorResult):
@@ -218,3 +226,80 @@ class ProjectHealthReport(BaseModel):
         if s >= 0.60:
             return "D"
         return "F"
+
+
+# ── Workspace status models (REQ-016) ─────────────────────────────────────────
+
+
+class BranchProtectionStatus(BaseModel):
+    """Classic branch protection state for one branch."""
+
+    branch: str
+    protected: bool
+    required_checks: list[str] = []
+    strict: bool | None = None
+    required_reviews: int | None = None
+    code_owner_review: bool | None = None
+    dismiss_stale: bool | None = None
+    force_push_allowed: bool | None = None
+    deletions_allowed: bool | None = None
+
+
+class RulesetStatus(BaseModel):
+    """Ruleset configuration for one repo."""
+
+    name: str
+    scope: str
+    enforcement: str
+    has_ci_check: bool
+    has_bypass_actor: bool
+
+
+class RepoStatus(BaseModel):
+    """Full observed state of one repository. REQ-016"""
+
+    name: str
+    owner: str
+    repo_type: str  # "code" | "docs"
+    visibility: str
+    description: str | None
+    local_branch: str | None
+    open_prs: int = 0
+    open_issues: int = 0
+    # repo-level merge settings
+    auto_merge: bool = False
+    delete_on_merge: bool = False
+    rebase_allowed: bool = False
+    squash_allowed: bool = False
+    merge_commit_allowed: bool = False
+    # files
+    has_codeowners: bool = False
+    has_dependabot: bool = False
+    workflows: list[str] = []
+    # protection
+    branch_protection: list[BranchProtectionStatus] = []
+    rulesets: list[RulesetStatus] = []
+    # health
+    forge_health_grade: str | None = None
+    forge_health_score: float | None = None
+    last_ci_conclusion: str | None = None
+    # diagnostics
+    issues: list[str] = []
+    collection_error: str | None = None
+
+
+class WorkspaceStatusReport(BaseModel):
+    """Aggregated status report for all repos in a workspace. REQ-016"""
+
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    repos: list[RepoStatus] = []
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def total_repos(self) -> int:
+        return len(self.repos)
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def repos_with_issues(self) -> int:
+        return sum(1 for r in self.repos if r.issues or r.collection_error)
