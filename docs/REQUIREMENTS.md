@@ -60,8 +60,12 @@ available collectors only.
 
 ## REQ-011 · Static Analysis Collector
 The library SHALL analyse source code using `ruff` (preferred) or `flake8` (fallback).
-It SHALL report: total lint errors, total Python lines, error density (errors per 1000
-lines), and a normalised score (0–1) where 0 errors = 1.0.
+It SHALL report violations bucketed into three fix-applicability tiers: `safe_errors`
+(auto-fixable, no behavior change), `unsafe_errors` (auto-fixable, may change behavior),
+and `manual_errors` (no fix available). The score SHALL use a weighted density formula
+(safe weight 0.3, unsafe 0.7, manual 1.0) against a ceiling of 50 weighted errors per
+1000 lines, so formatting noise penalises the score less than genuine logic issues.
+When using the flake8 fallback, all errors are counted as `manual_errors`.
 
 ## REQ-012 · Type Coverage Collector
 The library SHALL check type annotations using `mypy`. It SHALL report: total type errors,
@@ -103,3 +107,9 @@ The library SHALL expose a `forge workspace <config>` CLI command that loads a
 `WorkspaceStatusReport` using `WorkspaceReporter`. It SHALL support: `--markdown` (print
 markdown to stdout), `--output <path>` (write markdown to file), and `--health` (pass
 `run_health=True` to the collector). It SHALL exit 1 if the config file is not found.
+
+## REQ-019 · Health Run Artifacts
+When invoked with `--save-artifact`, `forge health` SHALL write the full JSON report to
+`<project_path>/artifacts/health_runs/<YYYYMMDD_HHMMSS_ffffff>/health_report.json`,
+creating parent directories as needed. Each invocation SHALL produce a unique timestamped
+directory, preserving the full history of health runs for audit purposes.

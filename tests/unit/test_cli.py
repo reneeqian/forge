@@ -1,4 +1,4 @@
-"""Unit tests for the Forge CLI — REQ-008, REQ-009, REQ-018."""
+"""Unit tests for the Forge CLI — REQ-008, REQ-009, REQ-018, REQ-019."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from forge.models import (
     ProjectHealthReport,
     RepoStatus,
     RequirementsCoverageResult,
+    StaticAnalysisResult,
     TestMetricsResult,
     WorkspaceStatusReport,
 )
@@ -111,6 +112,41 @@ class TestHealthCommand:
             result = runner.invoke(app, ["health", str(tmp_path)])
         assert result.exit_code == 0
 
+    def test_save_artifact_creates_timestamped_dir(self, tmp_path):
+        report = _make_report()
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(app, ["health", str(tmp_path), "--save-artifact"])
+        assert result.exit_code == 0
+        health_runs = tmp_path / "artifacts" / "health_runs"
+        assert health_runs.is_dir()
+        run_dirs = list(health_runs.iterdir())
+        assert len(run_dirs) == 1
+        assert (run_dirs[0] / "health_report.json").exists()
+
+    def test_save_artifact_json_contains_project_name(self, tmp_path):
+        report = _make_report()
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            runner.invoke(app, ["health", str(tmp_path), "--save-artifact"])
+        health_runs = tmp_path / "artifacts" / "health_runs"
+        run_dir = next(health_runs.iterdir())
+        data = json.loads((run_dir / "health_report.json").read_text())
+        assert data["project_name"] == "test-project"
+
+    def test_save_artifact_and_output_both_work(self, tmp_path):
+        report = _make_report()
+        out_file = tmp_path / "report.json"
+        with patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(
+                app,
+                ["health", str(tmp_path), "--save-artifact", "--output", str(out_file)],
+            )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        assert (tmp_path / "artifacts" / "health_runs").is_dir()
+
 
 # ── forge new ─────────────────────────────────────────────────────────────────
 
@@ -202,6 +238,30 @@ class TestCollectorDetail:
         )
         detail = _collector_detail(r)
         assert "3/4" in detail
+
+    def test_static_analysis_shows_all_three_tiers(self):
+        r = StaticAnalysisResult(
+            score=0.8, safe_errors=39, unsafe_errors=10, manual_errors=40,
+            total_lines=1000, error_density=25.0,
+        )
+        detail = _collector_detail(r)
+        assert "39 safe" in detail
+        assert "10 unsafe" in detail
+        assert "40 manual" in detail
+
+    def test_static_analysis_omits_zero_tiers(self):
+        r = StaticAnalysisResult(score=0.9, safe_errors=5, total_lines=500, error_density=3.0)
+        detail = _collector_detail(r)
+        assert "unsafe" not in detail
+        assert "manual" not in detail
+        assert "5 safe" in detail
+
+    def test_static_analysis_density_labeled_weighted(self):
+        r = StaticAnalysisResult(
+            score=0.8, manual_errors=10, total_lines=1000, error_density=10.0
+        )
+        detail = _collector_detail(r)
+        assert "weighted" in detail
 
 
 # ── forge workspace ───────────────────────────────────────────────────────────

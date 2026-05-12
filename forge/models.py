@@ -71,9 +71,16 @@ class StaticAnalysisResult(CollectorResult):
     """REQ-011 — ruff/flake8 static analysis results."""
 
     collector: str = "static_analysis"
-    total_errors: int = 0
+    safe_errors: int = 0       # auto-fixable, no behavior change
+    unsafe_errors: int = 0     # auto-fixable, may change behavior
+    manual_errors: int = 0     # no fix available — requires manual work
     total_lines: int = 0
-    error_density: float | None = None  # errors per 1000 lines
+    error_density: float | None = None  # weighted errors per 1000 lines
+
+    @computed_field
+    @property
+    def total_errors(self) -> int:
+        return self.safe_errors + self.unsafe_errors + self.manual_errors
 
 
 class TypeCoverageResult(CollectorResult):

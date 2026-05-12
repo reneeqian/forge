@@ -59,8 +59,13 @@ def health(
         "--python", "-P",
         help="Python interpreter to use for running tests (e.g. path to a conda env's python).",
     ),
+    save_artifact: bool = typer.Option(
+        False,
+        "--save-artifact",
+        help="Save timestamped JSON report to <project>/artifacts/health_runs/<timestamp>/health_report.json.",
+    ),
 ) -> None:
-    """Run a full health check on a project. REQ-008"""
+    """Run a full health check on a project. REQ-008, REQ-019"""
     path = path.resolve()
 
     if not path.exists():
@@ -80,6 +85,15 @@ def health(
     if output:
         output.write_text(report.model_dump_json(indent=2))
         console.print(f"\n[dim]Report written to {output}[/dim]")
+
+    if save_artifact:
+        import datetime as _dt
+        ts = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S_%f")  # noqa: UP017
+        artifact_dir = path / "artifacts" / "health_runs" / ts
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_file = artifact_dir / "health_report.json"
+        artifact_file.write_text(report.model_dump_json(indent=2))
+        console.print(f"[dim]Artifact saved to {artifact_file}[/dim]")
 
 
 # ── forge new ────────────────────────────────────────────────────────────────
@@ -267,9 +281,17 @@ def _collector_detail(result: CollectorResult) -> str:
         )
 
     if isinstance(result, StaticAnalysisResult):
+        parts = []
+        if result.safe_errors:
+            parts.append(f"{result.safe_errors} safe")
+        if result.unsafe_errors:
+            parts.append(f"{result.unsafe_errors} unsafe")
+        if result.manual_errors:
+            parts.append(f"{result.manual_errors} manual")
+        breakdown = f" ({' · '.join(parts)})" if parts else ""
         if result.error_density is not None:
-            return f"{result.total_errors} errors, {result.error_density:.1f}/1k lines"
-        return f"{result.total_errors} errors"
+            return f"{result.total_errors} errors{breakdown}, {result.error_density:.1f}/1k lines (weighted)"
+        return f"{result.total_errors} errors{breakdown}"
 
     if isinstance(result, TypeCoverageResult):
         detail = f"{result.total_errors} mypy errors"
