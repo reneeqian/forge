@@ -1,27 +1,29 @@
-"""Forge CLI — REQ-008, REQ-009.
+"""Forge CLI — REQ-008, REQ-009, REQ-018.
 
 Entry point: `forge`
 Commands:
-  forge health <path>   — run all collectors and print a report
-  forge new <name>      — scaffold a new project
+  forge health <path>         — run all collectors and print a report
+  forge new <name>            — scaffold a new project
+  forge workspace <toml>      — workspace-wide infrastructure status report
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich import box
 
 from forge.aggregator import Aggregator
 from forge.models import CollectorResult, ProjectHealthReport
 from forge.scaffolder.engine import ScaffoldConfig, ScaffoldEngine
 from forge.scaffolder.github_setup import GitHubConfig
+from forge.workspace.collector import WorkspaceCollector
+from forge.workspace.config import WorkspaceConfig
+from forge.workspace.reporter import WorkspaceReporter
 
 app = typer.Typer(
     name="forge",
@@ -42,7 +44,7 @@ def health(
         help="Path to the project to analyse. Defaults to current directory.",
         show_default=True,
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None,
         "--output", "-o",
         help="Write full JSON report to this file path.",
@@ -52,7 +54,7 @@ def health(
         "--json",
         help="Print raw JSON to stdout instead of the formatted table.",
     ),
-    python: Optional[str] = typer.Option(
+    python: str | None = typer.Option(
         None,
         "--python", "-P",
         help="Python interpreter to use for running tests (e.g. path to a conda env's python).",
@@ -289,6 +291,54 @@ def _collector_detail(result: CollectorResult) -> str:
         )
 
     return str(result.details) if result.details else "—"
+
+
+# ── forge workspace ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def workspace(
+    config: Path = typer.Argument(
+        default=Path("workspace.toml"),
+        help="Path to workspace.toml config file.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output", "-o",
+        help="Write markdown report to this file.",
+    ),
+    markdown: bool = typer.Option(
+        False,
+        "--markdown",
+        help="Print markdown to stdout instead of Rich terminal tables.",
+    ),
+    no_health: bool = typer.Option(
+        False,
+        "--no-health",
+        help="Skip forge health collection (faster, omits grade column).",
+    ),
+) -> None:
+    """Generate a workspace-wide infrastructure status report. REQ-018"""
+    try:
+        cfg = WorkspaceConfig.load(config)
+    except FileNotFoundError:
+        console.print(f"[red]Config not found:[/red] {config}")
+        raise typer.Exit(1) from None
+
+    report = WorkspaceCollector(cfg).collect_all(run_health=not no_health)
+    reporter = WorkspaceReporter(report)
+
+    if output is not None:
+        md = reporter.to_markdown()
+        output.write_text(md)
+        console.print(f"[green]Report written to[/green] {output}")
+        return
+
+    if markdown:
+        typer.echo(reporter.to_markdown())
+        return
+
+    reporter.print_terminal(console=console)
 
 
 if __name__ == "__main__":

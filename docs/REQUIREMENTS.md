@@ -79,3 +79,27 @@ total mutants generated, killed mutants, and mutation score (killed / total, 0鈥
 ## REQ-015 路 Mutation Testing Opt-In
 Mutation testing SHALL be disabled by default due to its long runtime. It SHALL be enabled
 per-project via `[collectors.mutation_testing] enabled = true` in `forge.toml`.
+
+## REQ-016 路 Workspace Status Models
+The library SHALL provide `BranchProtectionStatus`, `RulesetStatus`, `RepoStatus`, and
+`WorkspaceStatusReport` Pydantic models representing the observed state of a multi-repo
+workspace. `WorkspaceStatusReport` SHALL expose computed fields `total_repos` and
+`repos_with_issues` (count of repos where `issues` is non-empty or `collection_error` is set).
+
+## REQ-017 路 Workspace Collector
+The library SHALL provide a `WorkspaceCollector` that, given a `WorkspaceConfig`, queries
+the GitHub API via the `gh` CLI and reads local files to populate a `WorkspaceStatusReport`.
+It SHALL collect: repo settings (visibility, description, merge options), classic branch
+protection for `main` and `dev`, rulesets, local workflow files, CODEOWNERS, dependabot.yml,
+current git branch, and last CI run conclusion. It SHALL degrade gracefully when `gh` is
+unavailable or individual API calls fail, storing errors on the affected `RepoStatus` rather
+than raising. It SHALL implement a deterministic `_compute_issues` rule engine that flags
+misconfigured repos. When `run_health=True`, it SHALL invoke `forge health --json` for each
+repo with a configured `local_path`.
+
+## REQ-018 路 Workspace CLI Command
+The library SHALL expose a `forge workspace <config>` CLI command that loads a
+`workspace.toml`, runs `WorkspaceCollector.collect_all()`, and renders the
+`WorkspaceStatusReport` using `WorkspaceReporter`. It SHALL support: `--markdown` (print
+markdown to stdout), `--output <path>` (write markdown to file), and `--health` (pass
+`run_health=True` to the collector). It SHALL exit 1 if the config file is not found.

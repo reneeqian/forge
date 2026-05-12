@@ -1,22 +1,22 @@
-"""Unit tests for the Forge CLI — REQ-008, REQ-009."""
+"""Unit tests for the Forge CLI — REQ-008, REQ-009, REQ-018."""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from typer.testing import CliRunner
 
-from forge.cli import app, _score_colour, _collector_detail
+from forge.cli import _collector_detail, _score_colour, app
 from forge.models import (
+    CollectorWeights,
     ComplexityResult,
     DependencyHealthResult,
     ProjectHealthReport,
+    RepoStatus,
     RequirementsCoverageResult,
     TestMetricsResult,
-    CollectorWeights,
+    WorkspaceStatusReport,
 )
 
 runner = CliRunner()
@@ -34,7 +34,7 @@ def _make_report(
     defaults = dict(
         project_name=project_name,
         project_path="/tmp/test-project",
-        generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+        generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017,
         weights=CollectorWeights(),
         test_metrics=TestMetricsResult(score=0.9, total=10, passed=9),
         complexity=ComplexityResult(score=0.8, avg_cyclomatic=2.5, maintainability_index=80.0),
@@ -97,7 +97,7 @@ class TestHealthCommand:
         report = ProjectHealthReport(
             project_name="bare",
             project_path=str(tmp_path),
-            generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),
+            generated_at=datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc),  # noqa: UP017,
             weights=CollectorWeights(),
             test_metrics=TestMetricsResult(skipped=True, skip_reason="no tests"),
             complexity=ComplexityResult(skipped=True, skip_reason="no radon"),
@@ -202,3 +202,94 @@ class TestCollectorDetail:
         )
         detail = _collector_detail(r)
         assert "3/4" in detail
+
+
+# ── forge workspace ───────────────────────────────────────────────────────────
+
+
+def _make_workspace_report() -> WorkspaceStatusReport:
+    return WorkspaceStatusReport(
+        repos=[
+            RepoStatus(
+                name="medical_image_ai_toolkit",
+                owner="reneeqian",
+                repo_type="code",
+                visibility="public",
+                description="ML toolkit",
+                local_branch="dev",
+                auto_merge=True,
+                delete_on_merge=True,
+            )
+        ]
+    )
+
+
+class TestWorkspaceCommand:
+    def test_workspace_command_exists(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "r"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path)])
+        assert result.exit_code == 0
+
+    def test_exits_1_when_config_not_found(self, tmp_path):
+        result = runner.invoke(app, ["workspace", str(tmp_path / "no.toml")])
+        assert result.exit_code == 1
+
+    def test_renders_terminal_output_by_default(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path)])
+        assert result.exit_code == 0
+        assert "medical_image_ai_toolkit" in result.output
+
+    def test_markdown_flag_prints_markdown_to_stdout(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--markdown"])
+        assert result.exit_code == 0
+        assert "# Workspace Status Report" in result.output
+
+    def test_output_flag_writes_file(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        out_path = tmp_path / "out.md"
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--output", str(out_path)])
+        assert result.exit_code == 0
+        assert out_path.exists()
+        assert "# Workspace Status Report" in out_path.read_text()
+
+    def test_health_runs_by_default(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            runner.invoke(app, ["workspace", str(toml_path)])
+        MockColl.return_value.collect_all.assert_called_once_with(run_health=True)
+
+    def test_no_health_flag_skips_health(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            runner.invoke(app, ["workspace", str(toml_path), "--no-health"])
+        MockColl.return_value.collect_all.assert_called_once_with(run_health=False)
