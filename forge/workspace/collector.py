@@ -15,6 +15,17 @@ _STANDARD_RULESET_NAMES = {
     "Dev branch — require CI before auto-merge",
 }
 
+_COLLECTOR_KEYS = (
+    "test_metrics",
+    "complexity",
+    "dependency_health",
+    "requirements_coverage",
+    "static_analysis",
+    "type_coverage",
+    "dead_code",
+    "mutation_testing",
+)
+
 
 class WorkspaceCollector:
     def __init__(self, config: WorkspaceConfig) -> None:
@@ -195,6 +206,9 @@ class WorkspaceCollector:
             data = json.loads(proc.stdout)
             repo.forge_health_grade = data.get("grade")
             repo.forge_health_score = data.get("overall_score")
+            for key in _COLLECTOR_KEYS:
+                c_data = data.get(key) or {}
+                repo.forge_health_collectors[key] = c_data.get("score")
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 

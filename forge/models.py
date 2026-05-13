@@ -282,6 +282,7 @@ class RepoStatus(BaseModel):
     # health
     forge_health_grade: str | None = None
     forge_health_score: float | None = None
+    forge_health_collectors: dict[str, float | None] = Field(default_factory=dict)
     last_ci_conclusion: str | None = None
     # diagnostics
     issues: list[str] = []

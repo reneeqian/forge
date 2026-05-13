@@ -16,6 +16,17 @@ _DASH = "—"
 _CODE_WORKFLOWS = ["forge-health.yml", "auto-merge.yml", "codeql.yml", "dependency-review.yml", "pip-audit.yml"]
 _DOC_WORKFLOWS = ["forge-health.yml", "auto-merge.yml"]
 
+_COLLECTOR_LABELS = [
+    ("test_metrics",          "Tests"),
+    ("complexity",            "Complex."),
+    ("dependency_health",     "Dep Health"),
+    ("requirements_coverage", "Req Cov"),
+    ("static_analysis",       "Static"),
+    ("type_coverage",         "Type"),
+    ("dead_code",             "Dead Code"),
+    ("mutation_testing",      "Mutation"),
+]
+
 
 def _yn(value: bool) -> str:
     return _CHECK if value else _CROSS
@@ -25,6 +36,25 @@ def _wf(present: bool, applicable: bool) -> str:
     if not applicable:
         return _NA
     return _CHECK if present else _CROSS
+
+
+def _score_colour(score: float | None) -> str:
+    if score is None:
+        return "dim"
+    if score >= 0.9:
+        return "bold green"
+    if score >= 0.7:
+        return "green"
+    if score >= 0.5:
+        return "yellow"
+    return "red"
+
+
+def _grade_colour(grade: str | None) -> str:
+    return {
+        "A": "bold green", "B": "green", "C": "yellow",
+        "D": "red", "F": "bold red",
+    }.get(grade or "", "dim")
 
 
 class WorkspaceReporter:
@@ -64,6 +94,19 @@ class WorkspaceReporter:
         self._rich_ci_table(con)
         self._rich_health_table(con)
         self._rich_cleanup_section(con)
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _active_collectors(self) -> list[tuple[str, str]]:
+        """Return collector (key, label) pairs, omitting Mutation if no repo has data."""
+        return [
+            (key, label)
+            for key, label in _COLLECTOR_LABELS
+            if key != "mutation_testing" or any(
+                repo.forge_health_collectors.get(key) is not None
+                for repo in self._report.repos
+            )
+        ]
 
     # ── markdown sections ─────────────────────────────────────────────────────
 
@@ -112,13 +155,22 @@ class WorkspaceReporter:
         return lines
 
     def _md_health_table(self) -> list[str]:
-        lines = ["## Health Reporting", ""]
-        lines.append("| Repo | Grade | Last CI |")
-        lines.append("|---|:---:|:---:|")
+        active = self._active_collectors()
+        lines = ["## Health Details", ""]
+        headers = ["Repo", "Grade", "Score"] + [label for _, label in active] + ["Last CI"]
+        lines.append("| " + " | ".join(headers) + " |")
+        lines.append("|---" + "|:---:" * (len(headers) - 1) + "|")
         for repo in self._report.repos:
-            grade = repo.forge_health_grade if repo.forge_health_grade else _DASH
+            grade = repo.forge_health_grade or _DASH
+            score = repo.forge_health_score
+            score_str = f"{score:.0%}" if score is not None else _DASH
+            collector_cells = []
+            for key, _ in active:
+                cv = repo.forge_health_collectors.get(key)
+                collector_cells.append(f"{cv:.0%}" if cv is not None else _DASH)
             ci = repo.last_ci_conclusion or _DASH
-            lines.append(f"| `{repo.name}` | {grade} | {ci} |")
+            row = [f"`{repo.name}`", grade, score_str] + collector_cells + [ci]
+            lines.append("| " + " | ".join(row) + " |")
         return lines
 
     def _md_cleanup_section(self) -> list[str]:
@@ -192,14 +244,34 @@ class WorkspaceReporter:
         con.print(t)
 
     def _rich_health_table(self, con: Console) -> None:
-        t = Table(title="Health Reporting", show_lines=False)
+        active = self._active_collectors()
+        t = Table(title="Health Details", show_lines=False)
         t.add_column("Repo")
         t.add_column("Grade", justify="center")
+        t.add_column("Score", justify="right")
+        for _, label in active:
+            t.add_column(label, justify="right")
         t.add_column("Last CI", justify="center")
         for repo in self._report.repos:
             grade = repo.forge_health_grade or _DASH
+            gc = _grade_colour(repo.forge_health_grade)
+            score = repo.forge_health_score
+            score_str = f"{score:.0%}" if score is not None else _DASH
+            sc = _score_colour(score)
+            collector_cells = []
+            for key, _ in active:
+                cv = repo.forge_health_collectors.get(key)
+                cv_str = f"{cv:.0%}" if cv is not None else _DASH
+                cc = _score_colour(cv)
+                collector_cells.append(f"[{cc}]{cv_str}[/{cc}]")
             ci = repo.last_ci_conclusion or _DASH
-            t.add_row(repo.name, grade, ci)
+            t.add_row(
+                repo.name,
+                f"[{gc}]{grade}[/{gc}]",
+                f"[{sc}]{score_str}[/{sc}]",
+                *collector_cells,
+                ci,
+            )
         con.print(t)
 
     def _rich_cleanup_section(self, con: Console) -> None:

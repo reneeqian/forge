@@ -334,6 +334,21 @@ class TestWorkspaceCommand:
         assert out_path.exists()
         assert "# Workspace Status Report" in out_path.read_text()
 
+    def test_output_dir_auto_generates_timestamped_file(self, tmp_path):
+        toml_path = tmp_path / "myworkspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        out_dir = tmp_path / "reports"
+        out_dir.mkdir()
+        with patch("forge.cli.WorkspaceCollector") as MockColl:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--output", str(out_dir)])
+        assert result.exit_code == 0
+        md_files = list(out_dir.glob("*-myworkspace-status-report.md"))
+        assert len(md_files) == 1
+        assert "# Workspace Status Report" in md_files[0].read_text()
+
     def test_health_runs_by_default(self, tmp_path):
         toml_path = tmp_path / "workspace.toml"
         toml_path.write_text(
@@ -353,3 +368,32 @@ class TestWorkspaceCommand:
             MockColl.return_value.collect_all.return_value = _make_workspace_report()
             runner.invoke(app, ["workspace", str(toml_path), "--no-health"])
         MockColl.return_value.collect_all.assert_called_once_with(run_health=False)
+
+    def test_preview_flag_opens_file_after_writing(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        out_path = tmp_path / "report.md"
+        with patch("forge.cli.WorkspaceCollector") as MockColl, \
+             patch("forge.cli.click.launch") as mock_launch:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(
+                app, ["workspace", str(toml_path), "--output", str(out_path), "--preview"]
+            )
+        assert result.exit_code == 0
+        assert out_path.exists()
+        mock_launch.assert_called_once_with(str(out_path))
+
+    def test_preview_flag_without_output_warns(self, tmp_path):
+        toml_path = tmp_path / "workspace.toml"
+        toml_path.write_text(
+            '[workspace]\nowner = "reneeqian"\n\n[[repos]]\nname = "my_repo"\ntype = "code"\n'
+        )
+        with patch("forge.cli.WorkspaceCollector") as MockColl, \
+             patch("forge.cli.click.launch") as mock_launch:
+            MockColl.return_value.collect_all.return_value = _make_workspace_report()
+            result = runner.invoke(app, ["workspace", str(toml_path), "--preview"])
+        assert result.exit_code == 0
+        assert "--preview requires --output" in result.output
+        mock_launch.assert_not_called()

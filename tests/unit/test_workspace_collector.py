@@ -642,7 +642,7 @@ class TestCollectAll:
             mock_health.assert_called_once()
 
     def test_health_grade_parsed_from_json_output(self):
-        health_json = '{"grade": "A", "overall_score": 0.95}'
+        health_json = '{"grade": "A", "overall_score": 0.95, "test_metrics": {"score": 0.90}, "complexity": {"score": null}}'
         mock_proc = MagicMock(returncode=0, stdout=health_json)
         repo_cfg_with_path = RepoConfig(
             name="my_repo",
@@ -661,7 +661,35 @@ class TestCollectAll:
              patch("subprocess.run", return_value=mock_proc):
             report = c.collect_all(run_health=True)
 
-        assert report.repos[0].forge_health_grade == "A"
+        repo = report.repos[0]
+        assert repo.forge_health_grade == "A"
+        assert repo.forge_health_score == 0.95
+        assert repo.forge_health_collectors["test_metrics"] == 0.90
+        assert repo.forge_health_collectors["complexity"] is None
+
+    def test_health_collectors_absent_in_json_stored_as_none(self):
+        health_json = '{"grade": "B", "overall_score": 0.85}'
+        mock_proc = MagicMock(returncode=0, stdout=health_json)
+        repo_cfg_with_path = RepoConfig(
+            name="my_repo",
+            owner="reneeqian",
+            repo_type="code",
+            local_path=Path("/tmp/fake"),
+        )
+        cfg = _make_config([repo_cfg_with_path])
+        c = WorkspaceCollector(cfg)
+        with patch.object(c, "_collect_repo_settings"), \
+             patch.object(c, "_collect_branch_protection"), \
+             patch.object(c, "_collect_rulesets"), \
+             patch.object(c, "_collect_ci_conclusion"), \
+             patch.object(c, "_collect_local_files"), \
+             patch.object(c, "_compute_issues", return_value=[]), \
+             patch("subprocess.run", return_value=mock_proc):
+            report = c.collect_all(run_health=True)
+
+        repo = report.repos[0]
+        assert repo.forge_health_collectors["test_metrics"] is None
+        assert repo.forge_health_collectors["static_analysis"] is None
 
     def test_health_collection_failure_does_not_fail_repo(self):
         repo_cfg_with_path = RepoConfig(
