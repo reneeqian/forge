@@ -69,6 +69,8 @@ class WorkspaceCollector:
                 local_path = rc.local_path
                 if local_path:
                     self._collect_local_files(repo, local_path)
+                self._collect_branch_checks(repo, slug)
+                self._collect_open_pr(repo, slug)
             except Exception as exc:
                 repo.collection_error = f"collection failed: {exc}"
 
@@ -211,6 +213,34 @@ class WorkspaceCollector:
                 repo.forge_health_collectors[key] = c_data.get("score")
         except (FileNotFoundError, json.JSONDecodeError):
             pass
+
+    def _collect_branch_checks(self, repo: RepoStatus, slug: str) -> None:
+        if not repo.local_branch:
+            return
+        data = self._run_json([
+            "gh", "api",
+            f"repos/{slug}/commits/{repo.local_branch}/check-runs",
+        ])
+        if not isinstance(data, dict):
+            return
+        runs = data.get("check_runs", [])
+        if not runs:
+            return
+        repo.branch_ci_total = len(runs)
+        repo.branch_ci_passed = sum(1 for r in runs if r.get("conclusion") == "success")
+
+    def _collect_open_pr(self, repo: RepoStatus, slug: str) -> None:
+        if not repo.local_branch:
+            return
+        data = self._run_json([
+            "gh", "api",
+            f"repos/{slug}/pulls?state=open&head={repo.owner}:{repo.local_branch}&per_page=5",
+        ])
+        if not isinstance(data, list) or not data:
+            return
+        pr = data[0]
+        repo.open_pr_number = pr.get("number")
+        repo.open_pr_url = pr.get("html_url")
 
     # ── issue detection ───────────────────────────────────────────────────────
 

@@ -264,6 +264,8 @@ class RepoStatus(BaseModel):
     visibility: str
     description: str | None
     local_branch: str | None
+    open_pr_number: int | None = None
+    open_pr_url: str | None = None
     open_prs: int = 0
     open_issues: int = 0
     # repo-level merge settings
@@ -284,6 +286,8 @@ class RepoStatus(BaseModel):
     forge_health_score: float | None = None
     forge_health_collectors: dict[str, float | None] = Field(default_factory=dict)
     last_ci_conclusion: str | None = None
+    branch_ci_passed: int | None = None
+    branch_ci_total: int | None = None
     # diagnostics
     issues: list[str] = []
     collection_error: str | None = None

@@ -16,6 +16,10 @@ def _code_repo(
     grade: str | None = "A",
     issues: list[str] | None = None,
     forge_health_collectors: dict | None = None,
+    branch_ci_passed: int | None = None,
+    branch_ci_total: int | None = None,
+    open_pr_number: int | None = None,
+    open_pr_url: str | None = None,
 ) -> RepoStatus:
     return RepoStatus(
         name=name,
@@ -32,6 +36,10 @@ def _code_repo(
         forge_health_score=0.90 if grade == "A" else None,
         forge_health_collectors=forge_health_collectors or {},
         issues=issues or [],
+        branch_ci_passed=branch_ci_passed,
+        branch_ci_total=branch_ci_total,
+        open_pr_number=open_pr_number,
+        open_pr_url=open_pr_url,
     )
 
 
@@ -189,6 +197,33 @@ class TestWorkspaceReporterMarkdown:
         report = _report(_code_repo(grade="A"))
         md = WorkspaceReporter(report).to_markdown()
         assert "Score" in md
+
+    def test_markdown_overview_shows_ci_summary(self):
+        report = _report(_code_repo(branch_ci_passed=3, branch_ci_total=4))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "3/4" in md
+
+    def test_markdown_overview_ci_dash_when_no_data(self):
+        report = _report(_code_repo(branch_ci_passed=None, branch_ci_total=None))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "—" in md
+
+    def test_markdown_overview_shows_pr_link(self):
+        report = _report(_code_repo(open_pr_number=16, open_pr_url="https://github.com/reneeqian/forge/pull/16"))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "[#16]" in md
+        assert "https://github.com/reneeqian/forge/pull/16" in md
+
+    def test_markdown_overview_no_pr_shows_dash(self):
+        report = _report(_code_repo(open_pr_number=None))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "—" in md
+
+    def test_markdown_overview_has_ci_and_pr_columns(self):
+        report = _report(_code_repo())
+        md = WorkspaceReporter(report).to_markdown()
+        assert "| CI |" in md
+        assert "| PR |" in md
 
 
 class TestWorkspaceReporterTerminal:

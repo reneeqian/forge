@@ -567,6 +567,89 @@ class TestComputeIssues:
         assert len(issues) >= 3
 
 
+# ── Step 5b: branch checks and open PR collection ─────────────────────────────
+
+
+class TestCollectBranchChecks:
+    def setup_method(self):
+        self.collector = WorkspaceCollector(_make_config())
+        self.repo = RepoStatus(
+            name="my_repo", owner="reneeqian", repo_type="code",
+            visibility="public", description=None, local_branch="dev",
+        )
+
+    def test_parses_passed_and_total(self):
+        api_response = {
+            "check_runs": [
+                {"conclusion": "success"},
+                {"conclusion": "success"},
+                {"conclusion": "failure"},
+            ]
+        }
+        with patch.object(self.collector, "_run_json", return_value=api_response):
+            self.collector._collect_branch_checks(self.repo, "reneeqian/my_repo")
+        assert self.repo.branch_ci_passed == 2
+        assert self.repo.branch_ci_total == 3
+
+    def test_all_pass(self):
+        api_response = {"check_runs": [{"conclusion": "success"}, {"conclusion": "success"}]}
+        with patch.object(self.collector, "_run_json", return_value=api_response):
+            self.collector._collect_branch_checks(self.repo, "reneeqian/my_repo")
+        assert self.repo.branch_ci_passed == 2
+        assert self.repo.branch_ci_total == 2
+
+    def test_empty_runs_leaves_totals_none(self):
+        api_response = {"check_runs": []}
+        with patch.object(self.collector, "_run_json", return_value=api_response):
+            self.collector._collect_branch_checks(self.repo, "reneeqian/my_repo")
+        assert self.repo.branch_ci_total is None
+        assert self.repo.branch_ci_passed is None
+
+    def test_no_branch_skips_call(self):
+        self.repo.local_branch = None
+        with patch.object(self.collector, "_run_json") as mock_rj:
+            self.collector._collect_branch_checks(self.repo, "reneeqian/my_repo")
+        mock_rj.assert_not_called()
+
+    def test_api_failure_leaves_totals_none(self):
+        with patch.object(self.collector, "_run_json", return_value=None):
+            self.collector._collect_branch_checks(self.repo, "reneeqian/my_repo")
+        assert self.repo.branch_ci_total is None
+
+
+class TestCollectOpenPR:
+    def setup_method(self):
+        self.collector = WorkspaceCollector(_make_config())
+        self.repo = RepoStatus(
+            name="my_repo", owner="reneeqian", repo_type="code",
+            visibility="public", description=None, local_branch="feat-my-feature",
+        )
+
+    def test_parses_pr_number_and_url(self):
+        api_response = [{"number": 42, "html_url": "https://github.com/reneeqian/my_repo/pull/42"}]
+        with patch.object(self.collector, "_run_json", return_value=api_response):
+            self.collector._collect_open_pr(self.repo, "reneeqian/my_repo")
+        assert self.repo.open_pr_number == 42
+        assert self.repo.open_pr_url == "https://github.com/reneeqian/my_repo/pull/42"
+
+    def test_no_open_prs_leaves_none(self):
+        with patch.object(self.collector, "_run_json", return_value=[]):
+            self.collector._collect_open_pr(self.repo, "reneeqian/my_repo")
+        assert self.repo.open_pr_number is None
+        assert self.repo.open_pr_url is None
+
+    def test_no_branch_skips_call(self):
+        self.repo.local_branch = None
+        with patch.object(self.collector, "_run_json") as mock_rj:
+            self.collector._collect_open_pr(self.repo, "reneeqian/my_repo")
+        mock_rj.assert_not_called()
+
+    def test_api_failure_leaves_none(self):
+        with patch.object(self.collector, "_run_json", return_value=None):
+            self.collector._collect_open_pr(self.repo, "reneeqian/my_repo")
+        assert self.repo.open_pr_number is None
+
+
 # ── Step 6: collect_all orchestration tests ────────────────────────────────────
 
 
@@ -584,6 +667,8 @@ class TestCollectAll:
             "_collect_branch_protection",
             "_collect_rulesets",
             "_collect_ci_conclusion",
+            "_collect_branch_checks",
+            "_collect_open_pr",
         ]:
             stack.enter_context(patch.object(self.collector, method))
         stack.enter_context(patch.object(self.collector, "_collect_local_files"))

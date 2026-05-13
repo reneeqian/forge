@@ -38,6 +38,22 @@ def _wf(present: bool, applicable: bool) -> str:
     return _CHECK if present else _CROSS
 
 
+def _ci_colour(passed: int | None, total: int | None) -> str:
+    if passed is None or total is None or total == 0:
+        return "dim"
+    if passed == total:
+        return "green"
+    if passed == 0:
+        return "red"
+    return "yellow"
+
+
+def _ci_text(passed: int | None, total: int | None) -> str:
+    if passed is None or total is None:
+        return _DASH
+    return f"{passed}/{total}"
+
+
 def _score_colour(score: float | None) -> str:
     if score is None:
         return "dim"
@@ -112,12 +128,17 @@ class WorkspaceReporter:
 
     def _md_overview_table(self) -> list[str]:
         lines = ["## Repository Overview", ""]
-        lines.append("| Repo | Type | Visibility | Local Branch | Description |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| Repo | Type | Visibility | Local Branch | CI | PR | Description |")
+        lines.append("|---|---|---|---|:---:|:---:|---|")
         for repo in self._report.repos:
             branch = repo.local_branch or _DASH
             desc = repo.description or _DASH
-            lines.append(f"| `{repo.name}` | {repo.repo_type} | {repo.visibility} | {branch} | {desc} |")
+            ci = _ci_text(repo.branch_ci_passed, repo.branch_ci_total)
+            pr = f"[#{repo.open_pr_number}]({repo.open_pr_url})" if repo.open_pr_number else _DASH
+            lines.append(
+                f"| `{repo.name}` | {repo.repo_type} | {repo.visibility} "
+                f"| {branch} | {ci} | {pr} | {desc} |"
+            )
         return lines
 
     def _md_settings_table(self) -> list[str]:
@@ -197,14 +218,21 @@ class WorkspaceReporter:
 
     def _rich_overview_table(self, con: Console) -> None:
         t = Table(title="Repository Overview", show_lines=False)
-        for col in ("Repo", "Type", "Visibility", "Branch", "Description"):
+        for col in ("Repo", "Type", "Visibility", "Branch", "CI", "PR", "Description"):
             t.add_column(col)
+        t.columns[4].justify = "center"
+        t.columns[5].justify = "center"
         for repo in self._report.repos:
+            ci_txt = _ci_text(repo.branch_ci_passed, repo.branch_ci_total)
+            ci_col = _ci_colour(repo.branch_ci_passed, repo.branch_ci_total)
+            pr_txt = f"#{repo.open_pr_number}" if repo.open_pr_number else _DASH
             t.add_row(
                 repo.name,
                 repo.repo_type,
                 repo.visibility,
                 repo.local_branch or _DASH,
+                f"[{ci_col}]{ci_txt}[/{ci_col}]",
+                pr_txt,
                 repo.description or _DASH,
             )
         con.print(t)

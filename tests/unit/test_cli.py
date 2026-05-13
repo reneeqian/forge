@@ -308,7 +308,7 @@ class TestWorkspaceCommand:
             MockColl.return_value.collect_all.return_value = _make_workspace_report()
             result = runner.invoke(app, ["workspace", str(toml_path)])
         assert result.exit_code == 0
-        assert "medical_image_ai_toolkit" in result.output
+        assert "Repository Overview" in result.output
 
     def test_markdown_flag_prints_markdown_to_stdout(self, tmp_path):
         toml_path = tmp_path / "workspace.toml"
