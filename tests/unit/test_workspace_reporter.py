@@ -15,6 +15,7 @@ def _code_repo(
     workflows: list[str] | None = None,
     grade: str | None = "A",
     issues: list[str] | None = None,
+    forge_health_collectors: dict | None = None,
 ) -> RepoStatus:
     return RepoStatus(
         name=name,
@@ -28,6 +29,8 @@ def _code_repo(
         has_codeowners=True,
         workflows=workflows if workflows is not None else ["forge-health.yml", "auto-merge.yml"],
         forge_health_grade=grade,
+        forge_health_score=0.90 if grade == "A" else None,
+        forge_health_collectors=forge_health_collectors or {},
         issues=issues or [],
     )
 
@@ -147,6 +150,47 @@ class TestWorkspaceReporterMarkdown:
 # ── Terminal rendering smoke test ─────────────────────────────────────────────
 
 
+    def test_markdown_health_table_shows_collector_columns(self):
+        report = _report(_code_repo())
+        md = WorkspaceReporter(report).to_markdown()
+        assert "Tests" in md
+        assert "Static" in md
+        assert "Req Cov" in md
+
+    def test_markdown_health_table_shows_collector_scores(self):
+        collectors = {"test_metrics": 0.90, "static_analysis": 0.75}
+        report = _report(_code_repo(forge_health_collectors=collectors))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "90%" in md
+        assert "75%" in md
+
+    def test_markdown_health_table_shows_dash_for_missing_collector(self):
+        report = _report(_code_repo(forge_health_collectors={}))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "—" in md
+
+    def test_markdown_health_table_omits_mutation_column_when_no_data(self):
+        report = _report(_code_repo(forge_health_collectors={}))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "Mutation" not in md
+
+    def test_markdown_health_table_includes_mutation_column_when_data_present(self):
+        collectors = {"mutation_testing": 0.80}
+        report = _report(_code_repo(forge_health_collectors=collectors))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "Mutation" in md
+
+    def test_markdown_health_section_renamed_to_health_details(self):
+        report = _report(_code_repo())
+        md = WorkspaceReporter(report).to_markdown()
+        assert "## Health Details" in md
+
+    def test_markdown_health_table_shows_overall_score(self):
+        report = _report(_code_repo(grade="A"))
+        md = WorkspaceReporter(report).to_markdown()
+        assert "Score" in md
+
+
 class TestWorkspaceReporterTerminal:
     def test_print_terminal_does_not_raise(self):
         report = _report(_code_repo(), _docs_repo())
@@ -155,3 +199,18 @@ class TestWorkspaceReporterTerminal:
         reporter.print_terminal(console=console)
         output = console.export_text()
         assert len(output) > 0
+
+    def test_terminal_renders_with_collector_data(self):
+        collectors = {
+            "test_metrics": 0.95, "complexity": 0.80,
+            "dependency_health": 1.0, "requirements_coverage": 0.70,
+            "static_analysis": 0.90, "type_coverage": 0.85,
+            "dead_code": 0.60,
+        }
+        report = _report(_code_repo(forge_health_collectors=collectors))
+        reporter = WorkspaceReporter(report)
+        console = Console(record=True)
+        reporter.print_terminal(console=console)
+        output = console.export_text()
+        assert "Health Details" in output
+        assert "95%" in output

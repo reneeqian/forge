@@ -9,8 +9,10 @@ Commands:
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
+import click
 import typer
 from rich import box
 from rich.console import Console
@@ -24,6 +26,7 @@ from forge.scaffolder.github_setup import GitHubConfig
 from forge.workspace.collector import WorkspaceCollector
 from forge.workspace.config import WorkspaceConfig
 from forge.workspace.reporter import WorkspaceReporter
+
 
 app = typer.Typer(
     name="forge",
@@ -318,6 +321,11 @@ def _collector_detail(result: CollectorResult) -> str:
 # ── forge workspace ───────────────────────────────────────────────────────────
 
 
+def _auto_output_path(directory: Path, config_path: Path) -> Path:
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return directory / f"{ts}-{config_path.stem}-status-report.md"
+
+
 @app.command()
 def workspace(
     config: Path = typer.Argument(
@@ -327,7 +335,10 @@ def workspace(
     output: Path | None = typer.Option(
         None,
         "--output", "-o",
-        help="Write markdown report to this file.",
+        help=(
+            "Write markdown report to FILE. "
+            "Pass a directory (e.g. -o .) to auto-generate a timestamped filename inside it."
+        ),
     ),
     markdown: bool = typer.Option(
         False,
@@ -338,6 +349,11 @@ def workspace(
         False,
         "--no-health",
         help="Skip forge health collection (faster, omits grade column).",
+    ),
+    preview: bool = typer.Option(
+        False,
+        "--preview", "-p",
+        help="Open the written report in the system default viewer after saving (requires -o).",
     ),
 ) -> None:
     """Generate a workspace-wide infrastructure status report. REQ-018"""
@@ -351,10 +367,15 @@ def workspace(
     reporter = WorkspaceReporter(report)
 
     if output is not None:
-        md = reporter.to_markdown()
-        output.write_text(md)
-        console.print(f"[green]Report written to[/green] {output}")
+        out_path = _auto_output_path(output, config) if output.is_dir() else output
+        out_path.write_text(reporter.to_markdown())
+        console.print(f"[green]Report written to[/green] {out_path}")
+        if preview:
+            click.launch(str(out_path))
         return
+
+    if preview:
+        console.print("[yellow]--preview requires --output (-o)[/yellow]")
 
     if markdown:
         typer.echo(reporter.to_markdown())
