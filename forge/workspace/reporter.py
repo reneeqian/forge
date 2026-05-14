@@ -5,7 +5,7 @@ from __future__ import annotations
 from rich.console import Console
 from rich.table import Table
 
-from forge.models import WorkspaceStatusReport
+from forge.models import RepoStatus, WorkspaceStatusReport
 
 _CHECK = "✅"
 _CROSS = "❌"
@@ -26,6 +26,22 @@ _COLLECTOR_LABELS = [
     ("dead_code",             "Dead Code"),
     ("mutation_testing",      "Mutation"),
 ]
+
+
+_SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
+
+
+def _branch_col(repo: RepoStatus) -> str:
+    name = repo.local_branch or _DASH
+    parts = []
+    if repo.branch_count is not None:
+        parts.append(f"{repo.branch_count} br")
+    if repo.stale_branches:
+        parts.append(f"{len(repo.stale_branches)} stale")
+    n_sync = len(repo.branches_behind) + len(repo.branches_diverged)
+    if n_sync:
+        parts.append(f"{n_sync} behind")
+    return f"{name} ({', '.join(parts)})" if parts else name
 
 
 def _yn(value: bool) -> str:
@@ -97,7 +113,7 @@ class WorkspaceReporter:
         lines.append("")
         lines += self._md_health_table()
         lines.append("")
-        lines += self._md_cleanup_section()
+        lines += self._md_project_details()
 
         return "\n".join(lines)
 
@@ -109,7 +125,7 @@ class WorkspaceReporter:
         self._rich_settings_table(con)
         self._rich_ci_table(con)
         self._rich_health_table(con)
-        self._rich_cleanup_section(con)
+        self._rich_project_details(con)
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -131,7 +147,7 @@ class WorkspaceReporter:
         lines.append("| Repo | Type | Visibility | Local Branch | CI | PR | Description |")
         lines.append("|---|---|---|---|:---:|:---:|---|")
         for repo in self._report.repos:
-            branch = repo.local_branch or _DASH
+            branch = _branch_col(repo)
             desc = repo.description or _DASH
             ci = _ci_text(repo.branch_ci_passed, repo.branch_ci_total)
             pr = f"[#{repo.open_pr_number}]({repo.open_pr_url})" if repo.open_pr_number else _DASH
@@ -194,24 +210,62 @@ class WorkspaceReporter:
             lines.append("| " + " | ".join(row) + " |")
         return lines
 
-    def _md_cleanup_section(self) -> list[str]:
-        lines = ["## Recommended Cleanup", ""]
-        repos_with_issues = [r for r in self._report.repos if r.issues or r.collection_error]
+    def _build_project_issues(
+        self, repo: RepoStatus
+    ) -> list[tuple[str, str, str | None]]:
+        issues: list[tuple[str, str, str | None]] = []
 
-        if not repos_with_issues:
-            lines.append("No issues detected.")
-            return lines
+        if repo.collection_error:
+            issues.append(("CRITICAL", f"collection error: {repo.collection_error}", None))
 
-        n = 1
-        lines.append("| # | Repo | Issue |")
-        lines.append("|---|---|---|")
-        for repo in repos_with_issues:
-            if repo.collection_error:
-                lines.append(f"| {n} | `{repo.name}` | collection error: {repo.collection_error} |")
-                n += 1
-            for issue in repo.issues:
-                lines.append(f"| {n} | `{repo.name}` | {issue} |")
-                n += 1
+        if repo.last_ci_conclusion == "failure":
+            issues.append(("CRITICAL", "CI: last forge-health run failed", repo.last_ci_run_url))
+
+        for b in repo.branches_diverged:
+            issues.append(("CRITICAL", f"Diverged branch: {b}", None))
+
+        for b in repo.stale_branches:
+            issues.append(("WARNING", f"Stale branch: {b} (merged — safe to delete)", None))
+
+        low_collectors = [
+            (label, v)
+            for key, label in _COLLECTOR_LABELS
+            if (v := repo.forge_health_collectors.get(key)) is not None and v < 0.70
+        ]
+        for label, v in sorted(low_collectors, key=lambda x: x[1]):
+            issues.append(("WARNING", f"{label}: {v:.0%}", None))
+
+        for msg in repo.issues:
+            issues.append(("INFO", msg, None))
+
+        for b in repo.branches_behind:
+            issues.append(("INFO", f"Branch behind remote: {b}", None))
+
+        return sorted(issues, key=lambda x: _SEVERITY_ORDER.get(x[0], 99))
+
+    def _md_project_details(self) -> list[str]:
+        lines = ["## Project Details", ""]
+        any_issues = False
+        for repo in self._report.repos:
+            issues = self._build_project_issues(repo)
+            if not issues:
+                continue
+            any_issues = True
+            grade = repo.forge_health_grade or _DASH
+            score_str = f"{repo.forge_health_score:.0%}" if repo.forge_health_score is not None else _DASH
+            lines.append(f"### `{repo.name}`  ·  Grade {grade}  ·  {score_str}")
+            lines.append("")
+            for sev, msg, url in issues:
+                display = f"[{msg}]({url})" if url else msg
+                lines.append(f"- **{sev}**: {display}")
+            lines.append("")
+        if not any_issues:
+            lines.append("All repos are healthy — no issues detected.")
+            lines.append("")
+        lines.append(
+            "*Note: stale branch detection uses `git branch --merged`"
+            " — squash-merged branches may not appear.*"
+        )
         return lines
 
     # ── rich terminal sections ────────────────────────────────────────────────
@@ -230,7 +284,7 @@ class WorkspaceReporter:
                 repo.name,
                 repo.repo_type,
                 repo.visibility,
-                repo.local_branch or _DASH,
+                _branch_col(repo),
                 f"[{ci_col}]{ci_txt}[/{ci_col}]",
                 pr_txt,
                 repo.description or _DASH,
@@ -302,22 +356,26 @@ class WorkspaceReporter:
             )
         con.print(t)
 
-    def _rich_cleanup_section(self, con: Console) -> None:
-        repos_with_issues = [r for r in self._report.repos if r.issues or r.collection_error]
-        if not repos_with_issues:
-            con.print("\n[green]No issues detected.[/green]")
-            return
-
-        t = Table(title="Recommended Cleanup", show_lines=True)
-        t.add_column("#", justify="right")
-        t.add_column("Repo")
-        t.add_column("Issue")
-        n = 1
-        for repo in repos_with_issues:
-            if repo.collection_error:
-                t.add_row(str(n), repo.name, f"collection error: {repo.collection_error}")
-                n += 1
-            for issue in repo.issues:
-                t.add_row(str(n), repo.name, issue)
-                n += 1
-        con.print(t)
+    def _rich_project_details(self, con: Console) -> None:
+        _SEV_STYLE: dict[str, str] = {"CRITICAL": "bold red", "WARNING": "yellow", "INFO": "dim"}
+        any_issues = False
+        for repo in self._report.repos:
+            issues = self._build_project_issues(repo)
+            if not issues:
+                continue
+            any_issues = True
+            grade = repo.forge_health_grade or _DASH
+            gc = _grade_colour(repo.forge_health_grade)
+            score_str = (
+                f"{repo.forge_health_score:.0%}" if repo.forge_health_score is not None else _DASH
+            )
+            con.print(f"\n[bold]{repo.name}[/bold]  [{gc}]{grade}[/{gc}]  {score_str}")
+            for sev, msg, _url in issues:
+                style = _SEV_STYLE.get(sev, "")
+                con.print(f"  [{style}]{sev:8}[/{style}]  {msg}")
+        if not any_issues:
+            con.print("\n[green]All repos are healthy — no issues detected.[/green]")
+        con.print(
+            "\n[dim]Note: stale detection uses git branch --merged;"
+            " squash-merged branches may not appear.[/dim]"
+        )
