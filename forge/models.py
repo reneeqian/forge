@@ -264,6 +264,11 @@ class RepoStatus(BaseModel):
     visibility: str
     description: str | None
     local_branch: str | None
+    branch_count: int | None = None
+    stale_branches: list[str] = Field(default_factory=list)
+    branches_behind: list[str] = Field(default_factory=list)
+    branches_diverged: list[str] = Field(default_factory=list)
+    last_ci_run_url: str | None = None
     open_pr_number: int | None = None
     open_pr_url: str | None = None
     open_prs: int = 0
