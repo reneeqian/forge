@@ -1,4 +1,4 @@
-"""Unit tests for the Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001."""
+"""Unit tests for the Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001, WRK-005."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from forge.cli import _collector_detail, _score_colour, app
+from forge.env_discovery import EnvInfo
 from forge.models import (
     CollectorWeights,
     ComplexityResult,
@@ -397,3 +398,102 @@ class TestWorkspaceCommand:
         assert result.exit_code == 0
         assert "--preview requires --output" in result.output
         mock_launch.assert_not_called()
+
+
+# ── forge dashboard ───────────────────────────────────────────────────────────
+
+
+def _make_fake_envs(tmp_path: "Path") -> "list[EnvInfo]":
+    from pathlib import Path
+
+    paths = [
+        tmp_path / "envs" / "base" / "bin" / "python",
+        tmp_path / "envs" / "medimg-base" / "bin" / "python",
+    ]
+    for p in paths:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.touch()
+    return [EnvInfo("base", paths[0]), EnvInfo("medimg-base", paths[1])]
+
+
+class TestDashboardCommand:
+    def test_exits_1_when_path_not_found(self, tmp_path):
+        result = runner.invoke(app, ["dashboard", str(tmp_path / "nope")])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "Path not found" in result.output
+
+    def test_env_flag_skips_picker_and_runs_health(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        report = _make_report()
+        with patch("forge.cli.discover_envs", return_value=envs), \
+             patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(app, ["dashboard", str(tmp_path), "--env", "medimg-base"])
+        assert result.exit_code == 0
+        assert "medimg-base" in result.output
+        assert "test-project" in result.output
+
+    def test_env_flag_unknown_name_exits_1(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        with patch("forge.cli.discover_envs", return_value=envs):
+            result = runner.invoke(app, ["dashboard", str(tmp_path), "--env", "no-such-env"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "Environment not found" in result.output
+
+    def test_interactive_picker_uses_user_selection(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        report = _make_report()
+        with patch("forge.cli.discover_envs", return_value=envs), \
+             patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            # User types "2" to pick medimg-base
+            result = runner.invoke(app, ["dashboard", str(tmp_path)], input="2\n")
+        assert result.exit_code == 0
+        assert "medimg-base" in result.output
+
+    def test_interactive_picker_invalid_input_exits_1(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        with patch("forge.cli.discover_envs", return_value=envs):
+            result = runner.invoke(app, ["dashboard", str(tmp_path)], input="99\n")
+        assert result.exit_code == 1
+
+    def test_no_envs_uses_system_python(self, tmp_path):
+        report = _make_report()
+        with patch("forge.cli.discover_envs", return_value=[]), \
+             patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(app, ["dashboard", str(tmp_path)])
+        assert result.exit_code == 0
+        assert "system Python" in result.output
+
+    def test_output_flag_writes_json(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        report = _make_report()
+        out_file = tmp_path / "dashboard_report.json"
+        with patch("forge.cli.discover_envs", return_value=envs), \
+             patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            result = runner.invoke(
+                app,
+                ["dashboard", str(tmp_path), "--env", "base", "--output", str(out_file)],
+            )
+        assert result.exit_code == 0
+        assert out_file.exists()
+        import json
+        data = json.loads(out_file.read_text())
+        assert data["project_name"] == "test-project"
+
+    def test_picker_shows_default_marker_from_forge_toml(self, tmp_path):
+        envs = _make_fake_envs(tmp_path)
+        (tmp_path / "forge.toml").write_text(
+            '[test_runner]\npython = "' + str(envs[1].python) + '"\n'
+        )
+        report = _make_report()
+        with patch("forge.cli.discover_envs", return_value=envs), \
+             patch("forge.cli.Aggregator") as MockAgg:
+            MockAgg.return_value.run.return_value = report
+            # Default should point at index 2 (medimg-base); user just hits Enter (selects default)
+            result = runner.invoke(app, ["dashboard", str(tmp_path)], input="\n")
+        assert result.exit_code == 0
+        # default marker should appear in the table
+        assert "default" in result.output
