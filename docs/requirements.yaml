@@ -184,3 +184,69 @@ requirements:
       --markdown (print markdown to stdout), --output <path> (write markdown
       to file), and --no-health (skip forge health collection). Health runs
       by default. It shall exit 1 if the config file is not found.
+
+  - id: WRK-004
+    title: Environment Discovery
+    description: >
+      The library shall provide an EnvDiscovery module that enumerates
+      available Python environments: a project-local .venv (if present) and
+      all conda environments returned by "conda env list --json". Each result
+      shall expose a human-readable name and the absolute path to the python
+      binary. Discovery shall degrade gracefully when conda is not available.
+
+  # ==============================
+  # VS Code Extension Requirements
+  # ==============================
+
+  - id: EXT-001
+    title: VS Code Extension Sub-Library
+    description: >
+      The forge repository shall include a forge-vscode-panel/ sub-library
+      containing the VS Code extension source, package.json with @vscode/vsce
+      packaging scripts, an MIT LICENSE, and a .vscodeignore that excludes
+      node_modules from the bundle.
+    rationale: >
+      Co-locating the extension with the forge CLI enables atomic changes,
+      shared version history, and consistent release tooling.
+    verification: >
+      npm run package in forge-vscode-panel/ produces a .vsix with no warnings
+      containing only src/, package.json, and LICENSE.txt.
+
+  - id: EXT-002
+    title: VS Code Panel CI Validation
+    description: >
+      The CI system shall validate that the VS Code extension packages cleanly
+      (npm install && vsce package succeeds) on every pull request that touches
+      forge-vscode-panel/ files. The built .vsix shall be uploaded as a
+      downloadable workflow artifact for PR review.
+    rationale: >
+      Catches broken packaging before merge, preventing a broken release.
+    verification: >
+      ci-panel.yml GitHub Actions workflow passes and uploads a .vsix artifact
+      on a PR touching forge-vscode-panel/.
+
+  - id: EXT-003
+    title: Automated VS Code Panel Release
+    description: >
+      Whenever a pull request touching forge-vscode-panel/ is merged into main,
+      the CI system shall automatically build a .vsix and publish a GitHub
+      Release tagged vscode-panel-vX.Y.Z with the .vsix attached. No label
+      gate is required; the version is read from package.json.
+    rationale: >
+      Eliminates manual release steps; every merged panel PR is automatically
+      shippable.
+    verification: >
+      Merging a panel PR to main triggers release-vscode-panel.yml and creates
+      a GitHub Release with the correct tag and .vsix asset.
+
+  - id: WRK-005
+    title: forge dashboard Command
+    description: >
+      The CLI shall expose a forge dashboard [path] command that presents an
+      interactive numbered menu of available Python environments (via
+      EnvDiscovery), runs forge health on the selected project path using the
+      chosen interpreter, and renders the ProjectHealthReport to the terminal.
+      It shall support --env <name|path> to skip the interactive picker and
+      --output <path> to write the JSON report to a file. The default
+      highlighted entry shall be the interpreter configured in forge.toml
+      [test_runner] python when present.

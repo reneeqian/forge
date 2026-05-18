@@ -1,10 +1,11 @@
-"""Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001.
+"""Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001, WRK-005.
 
 Entry point: `forge`
 Commands:
   forge health <path>         — run all collectors and print a report
   forge new <name>            — scaffold a new project
   forge workspace <toml>      — workspace-wide infrastructure status report
+  forge dashboard [path]      — interactive env picker + health report
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from forge.aggregator import Aggregator
+from forge.config import load_config
+from forge.env_discovery import default_index, discover_envs, resolve_env
 from forge.models import CollectorResult, ProjectHealthReport
 from forge.scaffolder.engine import ScaffoldConfig, ScaffoldEngine
 from forge.scaffolder.github_setup import GitHubConfig
@@ -382,6 +385,96 @@ def workspace(
         return
 
     reporter.print_terminal(console=console)
+
+
+# ── forge dashboard ───────────────────────────────────────────────────────────
+
+
+@app.command()
+def dashboard(
+    path: Path = typer.Argument(
+        default=Path("."),
+        help="Path to the project to analyse. Defaults to current directory.",
+        show_default=True,
+    ),
+    env: str | None = typer.Option(
+        None,
+        "--env", "-e",
+        help="Environment name or python path to use directly (skips the picker).",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output", "-o",
+        help="Write full JSON report to this file path.",
+    ),
+) -> None:
+    """Interactive env picker + health report. WRK-005"""
+    from rich.prompt import Prompt
+    from rich.rule import Rule
+
+    path = path.resolve()
+    if not path.exists():
+        console.print(f"[red]✗[/red] Path not found: {path}")
+        raise typer.Exit(1)
+
+    cfg = load_config(path)
+    envs = discover_envs(project_path=path)
+
+    # ── resolve python executable ─────────────────────────────────────────────
+    if env is not None:
+        matched = resolve_env(env, envs)
+        if matched is None:
+            console.print(f"[red]✗[/red] Environment not found: {env!r}")
+            raise typer.Exit(1)
+        python_executable = str(matched.python)
+        console.print(f"[dim]Environment:[/dim] {matched.name}  ({python_executable})\n")
+    elif not envs:
+        console.print("[yellow]No conda or .venv environments found — using system Python.[/yellow]\n")
+        python_executable = ""
+    else:
+        # Interactive picker
+        console.print(Rule("[bold cyan]forge dashboard[/bold cyan]"))
+        console.print()
+
+        t = Table(box=box.SIMPLE_HEAD, show_header=True, padding=(0, 2))
+        t.add_column("#", justify="right", style="dim", no_wrap=True)
+        t.add_column("Environment", style="bold")
+        t.add_column("Python binary", style="dim")
+
+        def_idx = default_index(envs, cfg.python_executable)
+        for i, e in enumerate(envs):
+            marker = " [green](default)[/green]" if i == def_idx else ""
+            t.add_row(str(i + 1), f"{e.name}{marker}", str(e.python))
+
+        console.print(t)
+
+        raw = Prompt.ask(
+            "Select environment",
+            default=str(def_idx + 1),
+            console=console,
+        )
+        try:
+            idx = int(raw) - 1
+            if idx < 0 or idx >= len(envs):
+                raise ValueError
+        except ValueError:
+            console.print("[red]✗[/red] Invalid selection — enter a number from the list above.")
+            raise typer.Exit(1)
+
+        selected = envs[idx]
+        python_executable = str(selected.python)
+        console.print(f"\n[dim]Using:[/dim] [bold]{selected.name}[/bold]  ({python_executable})\n")
+
+    # ── run health ────────────────────────────────────────────────────────────
+    with console.status(f"[bold cyan]Analysing {path.name}…[/bold cyan]"):
+        aggregator = Aggregator()
+        report = aggregator.run(path, python_executable=python_executable)
+
+    _print_report(report)
+
+    if output:
+        output.write_text(report.model_dump_json(indent=2))
+        console.print(f"\n[dim]Report written to {output}[/dim]")
 
 
 if __name__ == "__main__":

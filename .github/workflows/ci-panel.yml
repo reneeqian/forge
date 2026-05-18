@@ -1,0 +1,41 @@
+name: CI – VS Code Panel
+
+"on":
+  push:
+    branches: [dev]
+    paths:
+      - 'forge-vscode-panel/**'
+      - '.github/workflows/ci-panel.yml'
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - 'forge-vscode-panel/**'
+      - '.github/workflows/ci-panel.yml'
+
+defaults:
+  run:
+    working-directory: forge-vscode-panel
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Verify VSIX packages cleanly
+        run: npm run package
+
+      - name: Upload VSIX artifact (for PR inspection)
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-panel-vsix-preview
+          path: forge-vscode-panel/*.vsix
+          retention-days: 7

@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
 from forge.models import BranchProtectionStatus, RepoStatus, RulesetStatus, WorkspaceStatusReport
 from forge.workspace.config import RepoConfig, WorkspaceConfig
+
+_RE_AHEAD  = re.compile(r"ahead (\d+)")
+_RE_BEHIND = re.compile(r"behind (\d+)")
 
 _STANDARD_RULESET_NAMES = {
     "protect the main",
@@ -69,6 +73,9 @@ class WorkspaceCollector:
                 local_path = rc.local_path
                 if local_path:
                     self._collect_local_files(repo, local_path)
+                    self._collect_branch_details(repo, local_path)
+                self._collect_branch_checks(repo, slug)
+                self._collect_open_pr(repo, slug)
             except Exception as exc:
                 repo.collection_error = f"collection failed: {exc}"
 
@@ -184,13 +191,63 @@ class WorkspaceCollector:
         data = self._run_json([
             "gh", "api",
             f"repos/{slug}/actions/workflows/{workflow_file}/runs",
-            "--jq", "{workflow_runs: [.workflow_runs[:1][] | {conclusion: .conclusion}]}",
+            "--jq",
+            "{workflow_runs: [.workflow_runs[:1][] | {conclusion: .conclusion, html_url: .html_url}]}",
         ])
         if data is None:
             return
         runs = data.get("workflow_runs", [])
         if runs:
             repo.last_ci_conclusion = runs[0].get("conclusion")
+            repo.last_ci_run_url    = runs[0].get("html_url") or None
+
+    def _collect_branch_details(self, repo: RepoStatus, local_path: Path) -> None:
+        git = ["git", "-C", str(local_path)]
+        try:
+            proc = subprocess.run([*git, "branch", "--list"], capture_output=True, text=True)
+            if proc.returncode == 0:
+                branches = [b.strip().lstrip("* ") for b in proc.stdout.splitlines() if b.strip()]
+                repo.branch_count = len(branches)
+
+            current = repo.local_branch or ""
+            stale: set[str] = set()
+            for target in ("origin/main", "origin/dev"):
+                proc = subprocess.run(
+                    [*git, "branch", "--merged", target], capture_output=True, text=True
+                )
+                if proc.returncode == 0:
+                    for b in proc.stdout.splitlines():
+                        name = b.strip().lstrip("* ")
+                        if name and name not in ("main", "dev", current):
+                            stale.add(name)
+            repo.stale_branches = sorted(stale)
+
+            proc = subprocess.run(
+                [*git, "for-each-ref",
+                 "--format=%(refname:short)|%(upstream:short)|%(upstream:track)",
+                 "refs/heads/"],
+                capture_output=True, text=True,
+            )
+            if proc.returncode == 0:
+                for line in proc.stdout.splitlines():
+                    parts = line.split("|", 2)
+                    if len(parts) < 3:
+                        continue
+                    bname, upstream, track = parts
+                    track = track.strip()
+                    if not track:
+                        continue
+                    ahead_m  = _RE_AHEAD.search(track)
+                    behind_m = _RE_BEHIND.search(track)
+                    ahead  = int(ahead_m.group(1))  if ahead_m  else 0
+                    behind = int(behind_m.group(1)) if behind_m else 0
+                    if ahead and behind:
+                        repo.branches_diverged.append(
+                            f"{bname} (ahead {ahead}, behind {behind} vs {upstream})")
+                    elif behind:
+                        repo.branches_behind.append(f"{bname} ({behind} behind {upstream})")
+        except FileNotFoundError:
+            pass
 
     def _collect_forge_health(self, repo: RepoStatus, rc: RepoConfig) -> None:
         if not rc.local_path:
@@ -211,6 +268,34 @@ class WorkspaceCollector:
                 repo.forge_health_collectors[key] = c_data.get("score")
         except (FileNotFoundError, json.JSONDecodeError):
             pass
+
+    def _collect_branch_checks(self, repo: RepoStatus, slug: str) -> None:
+        if not repo.local_branch:
+            return
+        data = self._run_json([
+            "gh", "api",
+            f"repos/{slug}/commits/{repo.local_branch}/check-runs",
+        ])
+        if not isinstance(data, dict):
+            return
+        runs = data.get("check_runs", [])
+        if not runs:
+            return
+        repo.branch_ci_total = len(runs)
+        repo.branch_ci_passed = sum(1 for r in runs if r.get("conclusion") == "success")
+
+    def _collect_open_pr(self, repo: RepoStatus, slug: str) -> None:
+        if not repo.local_branch:
+            return
+        data = self._run_json([
+            "gh", "api",
+            f"repos/{slug}/pulls?state=open&head={repo.owner}:{repo.local_branch}&per_page=5",
+        ])
+        if not isinstance(data, list) or not data:
+            return
+        pr = data[0]
+        repo.open_pr_number = pr.get("number")
+        repo.open_pr_url = pr.get("html_url")
 
     # ── issue detection ───────────────────────────────────────────────────────
 
