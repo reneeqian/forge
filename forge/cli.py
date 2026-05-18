@@ -477,5 +477,53 @@ def dashboard(
         console.print(f"\n[dim]Report written to {output}[/dim]")
 
 
+# ── forge gitsync ─────────────────────────────────────────────────────────────
+
+
+@app.command()
+def gitsync(
+    target: Path = typer.Argument(
+        default=Path("."),
+        help="Repo path, or directory containing repos. Defaults to current directory.",
+        show_default=True,
+    ),
+) -> None:
+    """Fetch, pull, and prune stale branches across one or more repos. GIT-001, GIT-002, GIT-003, GIT-004"""
+    from forge.git_sync import sync as run_sync
+
+    target = target.resolve()
+    if not target.exists():
+        console.print(f"[red]✗[/red] Path not found: {target}")
+        raise typer.Exit(1)
+
+    with console.status("[bold cyan]Syncing repos…[/bold cyan]"):
+        result = run_sync(target)
+
+    if not result.repos:
+        console.print("[yellow]No git repositories found.[/yellow]")
+        raise typer.Exit(1)
+
+    table = Table(box=box.SIMPLE_HEAD, show_header=True, padding=(0, 2))
+    table.add_column("Repo", style="bold")
+    table.add_column("Branch")
+    table.add_column("Pulled", justify="center")
+    table.add_column("Deleted")
+    table.add_column("Skipped (unpushed)", style="yellow")
+    table.add_column("Errors", style="red")
+
+    for r in result.repos:
+        table.add_row(
+            r.repo.name,
+            r.landed_on or "—",
+            "[green]✓[/green]" if r.pulled else "[red]✗[/red]",
+            ", ".join(r.deleted) or "—",
+            ", ".join(r.skipped) or "—",
+            ", ".join(r.errors) or "—",
+        )
+
+    console.print()
+    console.print(table)
+
+
 if __name__ == "__main__":
     app()
