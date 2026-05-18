@@ -226,6 +226,7 @@ class TestWorkspaceReporterMarkdown:
         assert "| PR |" in md
 
 
+
 class TestWorkspaceReporterTerminal:
     def test_print_terminal_does_not_raise(self):
         report = _report(_code_repo(), _docs_repo())

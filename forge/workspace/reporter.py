@@ -44,6 +44,7 @@ def _branch_col(repo: RepoStatus) -> str:
     return f"{name} ({', '.join(parts)})" if parts else name
 
 
+
 def _yn(value: bool) -> str:
     return _CHECK if value else _CROSS
 
@@ -68,6 +69,7 @@ def _ci_text(passed: int | None, total: int | None) -> str:
     if passed is None or total is None:
         return _DASH
     return f"{passed}/{total}"
+
 
 
 def _score_colour(score: float | None) -> str:
