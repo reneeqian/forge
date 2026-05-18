@@ -260,6 +260,23 @@ requirements:
       and populates branch/ahead-behind from git and PR/CI data from the GitHub
       API for each repo. Unit tests cover _buildRepoOverview with mock data.
 
+  - id: EXT-005
+    title: VS Code Panel Git Sync Button and Context Menu
+    description: >
+      The VS Code panel shall provide (a) a "Sync" button in the toolbar that
+      runs `forge gitsync <path>` for each workspace repo in a dedicated "Forge"
+      VS Code terminal, and (b) a right-click context menu on each repo row in
+      the Repository Overview table with a "Git Sync" option that runs
+      `forge gitsync <repo_path>` for that single repo in the same terminal.
+      The terminal shall be reused if already open.
+    rationale: >
+      One-click multi-repo sync and stale-branch cleanup without leaving the editor.
+    verification: >
+      Clicking "Sync All" opens/reuses a "Forge" terminal and runs forge gitsync
+      for all repos. Right-clicking a repo row shows a context menu; "Git Sync"
+      runs forge gitsync for that single repo. Unit tests cover data-repo-path
+      and data-repo-name attributes on overview table rows.
+
   - id: WRK-005
     title: forge dashboard Command
     description: >

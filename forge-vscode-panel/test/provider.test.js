@@ -194,6 +194,26 @@ test('renders all repos in a single table', () => {
   assert.ok(html.includes('3/3'));
 });
 
+// ── Gitsync attributes ────────────────────────────────────────────────────────
+
+console.log('\n_buildRepoOverview — gitsync attributes');
+
+test('rows have data-repo-path attribute', () => {
+  const html = ov({ r: meta('dev') }, { r: health('A') }, [{ name: 'r', local_path: '/repos/r' }]);
+  assert.ok(html.includes('data-repo-path="/repos/r"'));
+});
+
+test('rows have data-repo-name attribute', () => {
+  const html = ov({ r: meta('dev') }, { r: health('A') }, [{ name: 'r', local_path: '/repos/r' }]);
+  assert.ok(html.includes('data-repo-name="r"'));
+});
+
+test('escapes special chars in repo path attribute', () => {
+  const html = ov({ r: meta('dev') }, { r: health('A') }, [{ name: 'r', local_path: '/path with "quotes"' }]);
+  assert.ok(!html.includes('"/path with "quotes""'), 'unescaped quotes would break HTML attribute');
+  assert.ok(html.includes('&quot;'), 'quotes should be HTML-escaped');
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 
 console.log(`\n${passed + failed} tests: ${passed} passed, ${failed} failed\n`);
