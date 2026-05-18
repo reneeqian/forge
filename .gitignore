@@ -37,3 +37,7 @@ Thumbs.db
 # Forge outputs
 forge-report.json
 artifacts/
+
+# VS Code panel
+forge-vscode-panel/node_modules/
+forge-vscode-panel/*.vsix

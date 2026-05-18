@@ -1,0 +1,83 @@
+{
+  "name": "forge-panel",
+  "displayName": "Forge Panel",
+  "description": "Sidebar dashboard for forge workspace health and repository overview.",
+  "version": "0.0.1",
+  "publisher": "reneeqian",
+  "engines": {
+    "vscode": "^1.80.0",
+    "node": ">=18.0.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./src/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "forge-container",
+          "title": "Forge",
+          "icon": "$(beaker)"
+        }
+      ]
+    },
+    "views": {
+      "forge-container": [
+        {
+          "type": "webview",
+          "id": "forgeSidebar",
+          "name": "Forge Dashboard"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "forge.refresh",
+        "title": "Refresh Forge Dashboard",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "forge.refresh",
+          "when": "view == forgeSidebar",
+          "group": "navigation"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Forge Panel",
+      "properties": {
+        "forge.workspaceConfig": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to a workspace.toml. Leave empty (default) to use the folders open in the current VS Code workspace."
+        },
+        "forge.forgePath": {
+          "type": "string",
+          "default": "",
+          "description": "Full path to the forge CLI executable (e.g. /Users/you/miniconda3/envs/myenv/bin/forge). Leave empty to auto-detect."
+        },
+        "forge.repoPythonPaths": {
+          "type": "object",
+          "default": {},
+          "description": "Map of repo name → Python interpreter path. Overrides auto-detection from each repo's environment.yml. Example: {\"Coronary_prj\": \"/Users/you/miniconda3/envs/myenv/bin/python\"}",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package",
+    "vsce-ls": "vsce ls"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/reneeqian/forge.git",
+    "directory": "forge-vscode-panel"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.0.0"
+  }
+}
