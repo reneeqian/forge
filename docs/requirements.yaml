@@ -330,12 +330,17 @@ requirements:
     description: >
       After fetching (GIT-002) and switching to the landing branch (GIT-003),
       forge gitsync shall identify local branches whose remote tracking ref is
-      marked `[gone]` in `git branch -vv`. For each such branch it shall check
-      whether all commits are present in origin/<landing>
-      (`git log origin/<landing>...<branch>` is empty). If all commits are
-      accounted for the branch shall be deleted locally (`git branch -D`).
-      If the branch has commits not present in origin/<landing> it shall be left
-      untouched and the user notified in the summary. `main` and `dev` shall
+      marked `[gone]` in `git branch -vv`. For each such branch it shall first
+      check whether all commits are present in origin/<landing>
+      (`git log origin/<landing>...<branch>` is empty). If so, the branch is
+      deleted locally (`git branch -D`). If git log reports commits not in
+      origin/<landing> (as occurs with squash-merged PRs where individual commits
+      are not in the ancestry), the tool shall additionally run
+      `git diff origin/<landing> <branch>` to compare working-tree content. If
+      that diff is also empty, the branch's changes are fully incorporated and
+      the branch shall be deleted. Only if both checks are non-empty (git log
+      shows unique commits AND the content diff is non-empty) shall the branch
+      be left untouched and the user notified in the summary. `main` and `dev` shall
       never be deleted regardless of their remote tracking state. Because GIT-003
       runs first, the currently-checked-out branch will always be the landing
       branch by the time this step runs, so the previously-active stale branch
