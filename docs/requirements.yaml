@@ -239,6 +239,27 @@ requirements:
       Merging a panel PR to main triggers release-vscode-panel.yml and creates
       a GitHub Release with the correct tag and .vsix asset.
 
+  - id: EXT-004
+    title: VS Code Panel Repository Overview Table
+    description: >
+      The VS Code panel shall always display a "Repository Overview" table at
+      the top of the dashboard (both Mode A — VS Code workspace folders — and
+      Mode B — workspace.toml). For each repo the table shall show: name, health
+      grade (A–F colour-coded badge), current local branch (truncated at 18
+      characters), commits ahead/behind its upstream (↑N ↓M, or ✓ if in sync,
+      or — if no upstream is tracked), open PR number as a clickable GitHub link
+      (or — if none), and CI check-run pass count out of total (N/M,
+      colour-coded green/yellow/red, or — if data is unavailable).
+    rationale: >
+      A single at-a-glance row per repo gives the user immediate workspace
+      health and branch context without scrolling through individual health
+      cards.
+    verification: >
+      Open VS Code with one or more workspace folders; the panel's Repository
+      Overview section shows the correct columns (Repo, Grade, Br, ±, PR, CI)
+      and populates branch/ahead-behind from git and PR/CI data from the GitHub
+      API for each repo. Unit tests cover _buildRepoOverview with mock data.
+
   - id: WRK-005
     title: forge dashboard Command
     description: >

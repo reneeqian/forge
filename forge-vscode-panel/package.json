@@ -70,7 +70,8 @@
   },
   "scripts": {
     "package": "vsce package",
-    "vsce-ls": "vsce ls"
+    "vsce-ls": "vsce ls",
+    "test": "node test/provider.test.js"
   },
   "repository": {
     "type": "git",
