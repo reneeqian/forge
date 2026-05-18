@@ -52,9 +52,19 @@ def _detect_landing_branch(repo: Path) -> str:
 
 
 def _has_unpushed_commits(repo: Path, branch: str, landing: str) -> bool:
-    """True if branch contains commits not present in origin/<landing>."""
-    _, out, _ = _run_git(repo, ["log", f"origin/{landing}...{branch}", "--oneline"])
-    return bool(out.strip())
+    """True if branch has unmerged changes not present in origin/<landing>.
+
+    Two checks handle squash-merge workflows where individual commits are
+    not in the ancestry of origin/<landing> even though the content was merged:
+    1. git log: if empty, branch is cleanly merged — return False immediately.
+    2. git diff fallback: if log is non-empty, compare working-tree content.
+       Empty diff means changes were squash-merged — safe to delete.
+    """
+    _, log_out, _ = _run_git(repo, ["log", f"origin/{landing}...{branch}", "--oneline"])
+    if not log_out.strip():
+        return False
+    _, diff_out, _ = _run_git(repo, ["diff", f"origin/{landing}", branch])
+    return bool(diff_out.strip())
 
 
 def _parse_gone_branches(vv_output: str) -> list[str]:

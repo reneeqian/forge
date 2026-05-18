@@ -266,6 +266,7 @@ class TestStaleBranchCleanup:
         responses = {
             **self._base(self._VV_GONE_UNPUSHED),
             ("log", "origin/dev...wip-branch", "--oneline"): _proc(stdout="def5678 wip commit\n"),
+            ("diff", "origin/dev", "wip-branch"): _proc(stdout="diff --git a/wip.py b/wip.py\n+x = 1\n"),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
             result = sync_repo(tmp_path)
@@ -300,6 +301,7 @@ class TestStaleBranchCleanup:
             **self._base(vv),
             ("log", "origin/dev...clean-feat", "--oneline"): _proc(stdout=""),
             ("log", "origin/dev...wip-feat", "--oneline"): _proc(stdout="222 wip commit\n"),
+            ("diff", "origin/dev", "wip-feat"): _proc(stdout="diff --git a/wip.py b/wip.py\n+x = 1\n"),
             ("branch", "-D", "clean-feat"): _proc(stdout="Deleted branch clean-feat."),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
@@ -307,6 +309,47 @@ class TestStaleBranchCleanup:
 
         assert "clean-feat" in result.deleted
         assert "wip-feat" in result.skipped
+
+    def test_squash_merged_branch_is_deleted_despite_commit_history_mismatch(self, tmp_path):
+        """GIT-004: gone branch whose commits were squash-merged is deleted when content diff is empty."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev            abc [origin/dev] latest\n"
+            "  squash-feat    111 [origin/squash-feat: gone] squash merged\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev...squash-feat", "--oneline"): _proc(stdout="111 some commit\n"),
+            ("diff", "origin/dev", "squash-feat"): _proc(stdout=""),
+            ("branch", "-D", "squash-feat"): _proc(),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)):
+            result = sync_repo(tmp_path)
+
+        assert "squash-feat" in result.deleted
+        assert result.skipped == []
+
+    def test_branch_with_real_unmerged_content_is_skipped(self, tmp_path):
+        """GIT-004: gone branch with both commit history mismatch and non-empty diff is skipped."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev       abc [origin/dev] latest\n"
+            "  wip-real  222 [origin/wip-real: gone] real wip\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev...wip-real", "--oneline"): _proc(stdout="222 wip commit\n"),
+            ("diff", "origin/dev", "wip-real"): _proc(stdout="diff --git a/foo.py b/foo.py\n+x = 1\n"),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)):
+            result = sync_repo(tmp_path)
+
+        assert "wip-real" in result.skipped
+        assert result.deleted == []
 
     def test_git003_checkout_precedes_git004_deletion(self, tmp_path):
         """GIT-003, GIT-004: landing branch checkout happens before stale branch deletion."""
