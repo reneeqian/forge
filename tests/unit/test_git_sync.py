@@ -266,7 +266,7 @@ class TestStaleBranchCleanup:
         responses = {
             **self._base(self._VV_GONE_UNPUSHED),
             ("log", "origin/dev...wip-branch", "--oneline"): _proc(stdout="def5678 wip commit\n"),
-            ("diff", "origin/dev", "wip-branch"): _proc(stdout="diff --git a/wip.py b/wip.py\n+x = 1\n"),
+            ("diff", "wip-branch", "origin/dev"): _proc(stdout="-x = 1\n"),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
             result = sync_repo(tmp_path)
@@ -301,7 +301,7 @@ class TestStaleBranchCleanup:
             **self._base(vv),
             ("log", "origin/dev...clean-feat", "--oneline"): _proc(stdout=""),
             ("log", "origin/dev...wip-feat", "--oneline"): _proc(stdout="222 wip commit\n"),
-            ("diff", "origin/dev", "wip-feat"): _proc(stdout="diff --git a/wip.py b/wip.py\n+x = 1\n"),
+            ("diff", "wip-feat", "origin/dev"): _proc(stdout="-x = 1\n"),
             ("branch", "-D", "clean-feat"): _proc(stdout="Deleted branch clean-feat."),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
@@ -322,7 +322,7 @@ class TestStaleBranchCleanup:
         responses = {
             **self._base(vv),
             ("log", "origin/dev...squash-feat", "--oneline"): _proc(stdout="111 some commit\n"),
-            ("diff", "origin/dev", "squash-feat"): _proc(stdout=""),
+            ("diff", "squash-feat", "origin/dev"): _proc(stdout=""),
             ("branch", "-D", "squash-feat"): _proc(),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
@@ -343,13 +343,34 @@ class TestStaleBranchCleanup:
         responses = {
             **self._base(vv),
             ("log", "origin/dev...wip-real", "--oneline"): _proc(stdout="222 wip commit\n"),
-            ("diff", "origin/dev", "wip-real"): _proc(stdout="diff --git a/foo.py b/foo.py\n+x = 1\n"),
+            ("diff", "wip-real", "origin/dev"): _proc(stdout="-x = 1\n"),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
             result = sync_repo(tmp_path)
 
         assert "wip-real" in result.skipped
         assert result.deleted == []
+
+    def test_skipped_branch_result_includes_reason(self, tmp_path):
+        """GIT-004: skip_reasons field records unique line count for each skipped branch."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev    abc [origin/dev] ok\n"
+            "  my-wip 111 [origin/my-wip: gone] wip\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev...my-wip", "--oneline"): _proc(stdout="111 wip\n"),
+            ("diff", "my-wip", "origin/dev"): _proc(stdout="-x = 1\n-y = 2\n"),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)):
+            result = sync_repo(tmp_path)
+
+        assert "my-wip" in result.skipped
+        assert "my-wip" in result.skip_reasons
+        assert "2" in result.skip_reasons["my-wip"]
 
     def test_git003_checkout_precedes_git004_deletion(self, tmp_path):
         """GIT-003, GIT-004: landing branch checkout happens before stale branch deletion."""

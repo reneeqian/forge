@@ -335,12 +335,13 @@ requirements:
       (`git log origin/<landing>...<branch>` is empty). If so, the branch is
       deleted locally (`git branch -D`). If git log reports commits not in
       origin/<landing> (as occurs with squash-merged PRs where individual commits
-      are not in the ancestry), the tool shall additionally run
-      `git diff origin/<landing> <branch>` to compare working-tree content. If
-      that diff is also empty, the branch's changes are fully incorporated and
-      the branch shall be deleted. Only if both checks are non-empty (git log
-      shows unique commits AND the content diff is non-empty) shall the branch
-      be left untouched and the user notified in the summary. `main` and `dev` shall
+      are not in the ancestry), the tool shall run `git diff <branch> origin/<landing>`
+      and count lines present in `<branch>` but absent from `origin/<landing>` (lines
+      starting with `-`, excluding `---` file headers). If this count is zero, all
+      branch content is already incorporated and the branch shall be deleted. Only
+      if the count is non-zero shall the branch be skipped. The summary output shall
+      include the unique line count alongside each skipped branch name so the user
+      can see why it was not cleaned up. `main` and `dev` shall
       never be deleted regardless of their remote tracking state. Because GIT-003
       runs first, the currently-checked-out branch will always be the landing
       branch by the time this step runs, so the previously-active stale branch

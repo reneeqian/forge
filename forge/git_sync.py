@@ -16,6 +16,7 @@ class RepoBranchResult:
     pulled: bool = False
     deleted: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
+    skip_reasons: dict[str, str] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
 
@@ -51,20 +52,30 @@ def _detect_landing_branch(repo: Path) -> str:
     return "main"
 
 
-def _has_unpushed_commits(repo: Path, branch: str, landing: str) -> bool:
-    """True if branch has unmerged changes not present in origin/<landing>.
+def _unique_line_count(repo: Path, branch: str, landing: str) -> int:
+    """Lines present in branch but absent from origin/<landing>. 0 = fully incorporated."""
+    _, diff_out, _ = _run_git(repo, ["diff", branch, f"origin/{landing}"])
+    return sum(
+        1 for line in diff_out.splitlines()
+        if line.startswith("-") and not line.startswith("---")
+    )
 
-    Two checks handle squash-merge workflows where individual commits are
-    not in the ancestry of origin/<landing> even though the content was merged:
-    1. git log: if empty, branch is cleanly merged — return False immediately.
-    2. git diff fallback: if log is non-empty, compare working-tree content.
-       Empty diff means changes were squash-merged — safe to delete.
+
+def _has_unpushed_commits(repo: Path, branch: str, landing: str) -> tuple[bool, str]:
+    """Return (has_unpushed, reason). Handles squash-merge workflows correctly.
+
+    Comparing git diff <branch> origin/<landing> (branch → landing direction)
+    isolates lines that are in the branch but absent from origin/<landing>.
+    Zero such lines means the branch was squash-merged; non-zero means
+    genuinely unpushed content remains.
     """
     _, log_out, _ = _run_git(repo, ["log", f"origin/{landing}...{branch}", "--oneline"])
     if not log_out.strip():
-        return False
-    _, diff_out, _ = _run_git(repo, ["diff", f"origin/{landing}", branch])
-    return bool(diff_out.strip())
+        return False, ""
+    n = _unique_line_count(repo, branch, landing)
+    if n == 0:
+        return False, ""
+    return True, f"{n} unique line{'s' if n != 1 else ''} not in {landing}"
 
 
 def _parse_gone_branches(vv_output: str) -> list[str]:
@@ -107,8 +118,10 @@ def sync_repo(repo: Path) -> RepoBranchResult:
     # GIT-004: delete local branches whose remote is gone and have no unpushed commits
     _, vv_out, _ = _run_git(repo, ["branch", "-vv"])
     for branch in _parse_gone_branches(vv_out):
-        if _has_unpushed_commits(repo, branch, landing):
+        has_unpushed, reason = _has_unpushed_commits(repo, branch, landing)
+        if has_unpushed:
             result.skipped.append(branch)
+            result.skip_reasons[branch] = reason
         else:
             rc, _, err = _run_git(repo, ["branch", "-D", branch])
             if rc == 0:
