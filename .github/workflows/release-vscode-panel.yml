@@ -1,0 +1,53 @@
+name: Release – VS Code Panel
+
+# Fires when any PR touching panel code is merged into main.
+# No label gate — every merged panel PR produces a release.
+# Bump version in forge-vscode-panel/package.json as part of the PR before merging.
+
+"on":
+  pull_request:
+    types: [closed]
+    branches: [main]
+    paths:
+      - 'forge-vscode-panel/**'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forge-vscode-panel
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Extract version from package.json
+        id: version
+        run: |
+          VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build VSIX
+        run: npm run package
+
+      - name: Create GitHub Release
+        run: |
+          gh release create "vscode-panel-v${{ steps.version.outputs.version }}" \
+            forge-panel-${{ steps.version.outputs.version }}.vsix \
+            --title "Forge VS Code Panel v${{ steps.version.outputs.version }}" \
+            --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
