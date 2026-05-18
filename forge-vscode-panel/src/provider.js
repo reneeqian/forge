@@ -71,6 +71,8 @@ class ForgeWebviewProvider {
     this._extensionUri = extensionUri;
     this._view = null;
     this._cachedHtml = null;
+    this._lastForgePath = null;
+    this._lastCodeRepos = [];
   }
 
   resolveWebviewView(webviewView) {
@@ -92,6 +94,20 @@ class ForgeWebviewProvider {
         }
         cfg.update('repoPythonPaths', overrides, vscode.ConfigurationTarget.Global)
           .then(() => this.refresh());
+      }
+      if (msg.command === 'gitsync') {
+        const fp = this._lastForgePath ?? this._resolveForge();
+        const repos = this._lastCodeRepos ?? [];
+        const q = s => `"${s}"`;
+        const terminal = vscode.window.terminals.find(t => t.name === 'Forge')
+          ?? vscode.window.createTerminal({ name: 'Forge' });
+        terminal.show();
+        if (msg.target === 'single') {
+          terminal.sendText(`${q(fp)} gitsync ${q(msg.path)}`);
+        } else {
+          const cmds = repos.map(r => `${q(fp)} gitsync ${q(r.local_path)}`).join(' && ');
+          if (cmds) terminal.sendText(cmds);
+        }
       }
     });
 
@@ -233,6 +249,7 @@ class ForgeWebviewProvider {
 
   async _run() {
     const forgePath = this._resolveForge();
+    this._lastForgePath = forgePath;
     const configPath = this._resolveWorkspaceConfig();
     const q = s => `"${s}"`;
 
@@ -255,6 +272,8 @@ class ForgeWebviewProvider {
       codeRepos = folders.map(f => ({ name: f.name, local_path: f.uri.fsPath }));
       workspaceMd = null;
     }
+
+    this._lastCodeRepos = codeRepos;
 
     const repoPythonInfo = {};
     for (const repo of codeRepos) {
@@ -420,7 +439,7 @@ class ForgeWebviewProvider {
         ciHtml = `<span class="${cls}">${meta.ciPassed}/${meta.ciTotal}</span>`;
       }
 
-      return `<tr>
+      return `<tr data-repo-path="${escHtml(repo.local_path)}" data-repo-name="${escHtml(repo.name)}">
         <td class="sum-name">${escHtml(repo.name)}</td>
         <td class="sum-grade"><span class="sum-badge" style="background:${col}">${escHtml(grade)}</span></td>
         <td class="ov-br">${escHtml(brText)}</td>
@@ -551,7 +570,12 @@ class ForgeWebviewProvider {
     const body = `
       <div class="toolbar">
         <span class="ts">Updated ${now}</span>
+        <button class="sync-btn" onclick="onSyncAll()" title="Run forge gitsync for all repos">↻ Sync</button>
         <span class="cfg" title="${escHtml(configTitle)}">${escHtml(configLabel)}</span>
+      </div>
+
+      <div id="ctx-menu" class="ctx-menu">
+        <div class="ctx-item" id="ctx-gitsync">↻ Git Sync</div>
       </div>
 
       ${overviewHtml ? `<section>
@@ -810,6 +834,39 @@ section { margin-bottom: 14px; }
 .ov-pass { color: #4EC9B0; }
 .ov-fail { color: #F44747; }
 .ov-warn { color: #DCDCAA; }
+
+/* Toolbar sync button */
+.sync-btn {
+  background: var(--vscode-button-secondaryBackground, #3c3c3c);
+  color: var(--vscode-button-secondaryForeground, #ccc);
+  border: 1px solid var(--vscode-panel-border, #555);
+  border-radius: 3px;
+  padding: 1px 8px;
+  font-size: 0.8em;
+  cursor: pointer;
+  font-family: inherit;
+}
+.sync-btn:hover { background: var(--vscode-button-secondaryHoverBackground, #4a4a4a); }
+
+/* Right-click context menu */
+.ctx-menu {
+  display: none;
+  position: fixed;
+  z-index: 9999;
+  background: var(--vscode-menu-background, #252526);
+  border: 1px solid var(--vscode-menu-border, #454545);
+  border-radius: 4px;
+  padding: 3px 0;
+  min-width: 130px;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+}
+.ctx-item {
+  padding: 5px 14px;
+  font-size: 0.85em;
+  cursor: pointer;
+  color: var(--vscode-menu-foreground, #ccc);
+}
+.ctx-item:hover { background: var(--vscode-menu-selectionBackground, #094771); }
 </style>
 </head>
 <body>
@@ -829,6 +886,39 @@ function onEnvChange(select) {
     python: select.value,  // "" means "remove override / auto-detect"
   });
 }
+
+function onSyncAll() {
+  vscode.postMessage({ command: 'gitsync', target: 'all' });
+}
+
+(function () {
+  let activeMenu = null;
+
+  document.addEventListener('contextmenu', e => {
+    const tr = e.target.closest('tr[data-repo-path]');
+    const menu = document.getElementById('ctx-menu');
+    if (!menu) return;
+    menu.style.display = 'none';
+    if (!tr) return;
+    e.preventDefault();
+    activeMenu = { path: tr.dataset.repoPath, name: tr.dataset.repoName };
+    menu.style.left = e.clientX + 'px';
+    menu.style.top  = e.clientY + 'px';
+    menu.style.display = 'block';
+  });
+
+  document.addEventListener('click', () => {
+    const menu = document.getElementById('ctx-menu');
+    if (menu) menu.style.display = 'none';
+  });
+
+  document.getElementById('ctx-gitsync')?.addEventListener('click', () => {
+    if (!activeMenu) return;
+    vscode.postMessage({ command: 'gitsync', target: 'single',
+                         path: activeMenu.path, name: activeMenu.name });
+    activeMenu = null;
+  });
+})();
 </script>
 </body>
 </html>`;
