@@ -512,12 +512,15 @@ def gitsync(
     table.add_column("Errors", style="red")
 
     for r in result.repos:
+        skipped_text = ", ".join(
+            f"{b} ({r.skip_reasons.get(b, 'unpushed')})" for b in r.skipped
+        ) or "—"
         table.add_row(
             r.repo.name,
             r.landed_on or "—",
             "[green]✓[/green]" if r.pulled else "[red]✗[/red]",
             ", ".join(r.deleted) or "—",
-            ", ".join(r.skipped) or "—",
+            skipped_text,
             ", ".join(r.errors) or "—",
         )
 
