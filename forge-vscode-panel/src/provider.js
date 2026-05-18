@@ -261,8 +261,9 @@ class ForgeWebviewProvider {
       repoPythonInfo[repo.name] = this._resolveProjectPython(repo.name, repo.local_path);
     }
 
-    const [condaEnvs, ...healthArr] = await Promise.all([
+    const [condaEnvs, metaMap, ...healthArr] = await Promise.all([
       this._discoverCondaEnvs(),
+      this._gatherRepoMeta(codeRepos),
       ...codeRepos.map(repo => {
         const { python } = repoPythonInfo[repo.name];
         const pythonFlag = python ? `--python ${q(python)}` : '';
@@ -275,7 +276,7 @@ class ForgeWebviewProvider {
     const healthMap = {};
     for (const r of healthArr) healthMap[r.name] = { ...r, pythonInfo: repoPythonInfo[r.name] };
 
-    const html = this._buildDashboard(workspaceMd, healthMap, codeRepos, configPath, condaEnvs);
+    const html = this._buildDashboard(workspaceMd, healthMap, metaMap, codeRepos, configPath, condaEnvs);
     this._cachedHtml = html;
     if (this._view) this._view.webview.html = html;
   }
@@ -338,48 +339,101 @@ class ForgeWebviewProvider {
     return html;
   }
 
-  // ── Health summary table (Mode A fallback) ────────────────────────────────────
+  // ── Repo meta gathering (branch, ahead/behind, PR, CI) ───────────────────────
 
-  _buildHealthSummaryTable(healthMap, codeRepos) {
-    const KEY_COLS = [
-      { key: 'test_metrics',      label: 'Tests' },
-      { key: 'static_analysis',   label: 'Lint' },
-      { key: 'type_coverage',     label: 'Type' },
-      { key: 'dependency_health', label: 'Deps' },
-    ];
+  async _gatherRepoMeta(codeRepos) {
+    const results = await Promise.all(codeRepos.map(async repo => {
+      const base = { name: repo.name, branch: null, ahead: 0, behind: 0,
+                     prNumber: null, prUrl: null, ciPassed: null, ciTotal: null };
+      try {
+        const p = repo.local_path;
 
+        // Branch + ahead/behind via porcelain v2
+        const statusOut = await execCmd(
+          `git -C "${p}" status --porcelain=v2 --branch 2>/dev/null || echo ''`
+        );
+        for (const line of statusOut.split('\n')) {
+          const headM = line.match(/^# branch\.head (.+)$/);
+          if (headM && headM[1] !== '(detached)') base.branch = headM[1];
+          const abM = line.match(/^# branch\.ab \+(\d+) -(\d+)$/);
+          if (abM) { base.ahead = +abM[1]; base.behind = +abM[2]; }
+        }
+
+        // Owner/repo slug from remote URL
+        const remoteOut = await execCmd(
+          `git -C "${p}" remote get-url origin 2>/dev/null || echo ''`
+        );
+        const slugM = remoteOut.trim().match(/github\.com[:/](.+?\/.+?)(?:\.git)?\s*$/);
+        const slug = slugM?.[1] ?? null;
+
+        if (slug && base.branch) {
+          const owner = slug.split('/')[0];
+          await execCmd(`gh api "repos/${slug}/pulls?state=open&head=${owner}:${base.branch}&per_page=1"`)
+            .then(out => {
+              const pr = JSON.parse(out)?.[0];
+              if (pr) { base.prNumber = pr.number; base.prUrl = pr.html_url; }
+            }).catch(() => {});
+          await execCmd(`gh api "repos/${slug}/commits/${base.branch}/check-runs"`)
+            .then(out => {
+              const runs = JSON.parse(out)?.check_runs ?? [];
+              if (runs.length) {
+                base.ciTotal = runs.length;
+                base.ciPassed = runs.filter(r => r.conclusion === 'success').length;
+              }
+            }).catch(() => {});
+        }
+      } catch {}
+      return base;
+    }));
+
+    return Object.fromEntries(results.map(r => [r.name, r]));
+  }
+
+  // ── Repository overview table ─────────────────────────────────────────────────
+
+  _buildRepoOverview(metaMap, healthMap, codeRepos) {
     const rows = codeRepos.map(repo => {
-      const result = healthMap[repo.name];
-      if (!result || result.error) {
-        return `<tr>
-          <td class="sum-name">${escHtml(repo.name)}</td>
-          <td colspan="${2 + KEY_COLS.length}" class="sum-err muted">error</td>
-        </tr>`;
-      }
-      const d = result.data;
-      const grade = d.grade ?? '?';
-      const col = GRADE_COLOR[grade] ?? '#888';
-      const score = Math.round((d.overall_score ?? 0) * 100);
-      const scoreCol = score >= 90 ? '#4EC9B0' : score >= 70 ? '#DCDCAA' : score >= 50 ? '#CE9178' : '#F44747';
+      const meta   = metaMap[repo.name] ?? {};
+      const health = healthMap[repo.name];
+      const grade  = health?.data?.grade ?? (health?.error ? 'ERR' : '?');
+      const col    = GRADE_COLOR[grade] ?? '#888';
 
-      const collCells = KEY_COLS.map(({ key }) => {
-        const r = d[key];
-        if (!r || r.skipped) return '<td class="sum-cell na">—</td>';
-        const cls = r.score >= 0.7 ? 'pass' : 'fail';
-        return `<td class="sum-cell ${cls}">${pct(r.score)}</td>`;
-      }).join('');
+      const brRaw  = meta.branch ?? '';
+      const brText = brRaw ? brRaw.slice(0, 18) + (brRaw.length > 18 ? '…' : '') : '—';
+
+      let syncHtml = '—';
+      if (meta.branch !== null && meta.branch !== undefined) {
+        const parts = [];
+        if (meta.ahead)  parts.push(`↑${meta.ahead}`);
+        if (meta.behind) parts.push(`↓${meta.behind}`);
+        syncHtml = parts.length ? escHtml(parts.join(' ')) : '✓';
+      }
+
+      const prHtml = meta.prNumber
+        ? `<a href="#" data-url="${escHtml(meta.prUrl)}">#${meta.prNumber}</a>`
+        : '—';
+
+      let ciHtml = '—';
+      if (meta.ciTotal !== null) {
+        const cls = meta.ciPassed === meta.ciTotal ? 'ov-pass'
+                  : meta.ciPassed === 0            ? 'ov-fail' : 'ov-warn';
+        ciHtml = `<span class="${cls}">${meta.ciPassed}/${meta.ciTotal}</span>`;
+      }
 
       return `<tr>
         <td class="sum-name">${escHtml(repo.name)}</td>
         <td class="sum-grade"><span class="sum-badge" style="background:${col}">${escHtml(grade)}</span></td>
-        <td class="sum-score" style="color:${scoreCol}">${score}%</td>
-        ${collCells}
+        <td class="ov-br">${escHtml(brText)}</td>
+        <td class="ov-sync">${syncHtml}</td>
+        <td class="ov-pr">${prHtml}</td>
+        <td class="ov-ci">${ciHtml}</td>
       </tr>`;
     }).join('');
 
-    const headers = ['Repo', 'Grade', 'Score', ...KEY_COLS.map(c => c.label)];
     return `<table class="sum-table">
-      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <thead><tr>
+        <th>Repo</th><th>Grade</th><th>Br</th><th>±</th><th>PR</th><th>CI</th>
+      </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   }
@@ -481,10 +535,8 @@ class ForgeWebviewProvider {
 
   // ── Dashboard assembly ────────────────────────────────────────────────────────
 
-  _buildDashboard(workspaceMd, healthMap, codeRepos, configPath, condaEnvs) {
-    const overviewHtml = workspaceMd
-      ? this._mdTableToHtml(this._extractSection(workspaceMd, 'Repository Overview'), new Set(['Visibility', 'Description']))
-      : this._buildHealthSummaryTable(healthMap, codeRepos);
+  _buildDashboard(workspaceMd, healthMap, metaMap, codeRepos, configPath, condaEnvs) {
+    const overviewHtml = this._buildRepoOverview(metaMap, healthMap, codeRepos);
     const issuesHtml = workspaceMd ? this._extractIssues(workspaceMd) : null;
     const healthHtml = codeRepos.length
       ? codeRepos.map(r => this._healthCard(r.name, healthMap[r.name], condaEnvs)).join('')
@@ -730,7 +782,7 @@ section { margin-bottom: 14px; }
 
 .muted { color: var(--vscode-descriptionForeground, #888); font-size: 0.85em; }
 
-/* Health summary table (Mode A) */
+/* Repository overview table */
 .sum-table {
   width: 100%; border-collapse: collapse; font-size: 0.82em; table-layout: auto;
 }
@@ -744,19 +796,20 @@ section { margin-bottom: 14px; }
   font-weight: 600;
 }
 .sum-table tr:hover td { background: var(--vscode-list-hoverBackground, #2a2a2a); }
-.sum-name { font-weight: 600; white-space: nowrap; }
+.sum-name  { font-weight: 600; white-space: nowrap; }
 .sum-grade { text-align: center; width: 44px; }
 .sum-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; border-radius: 50%;
   font-weight: 800; font-size: 0.8em; color: #1a1a1a;
 }
-.sum-score { text-align: right; font-variant-numeric: tabular-nums; width: 36px; }
-.sum-cell { text-align: right; font-variant-numeric: tabular-nums; width: 32px; }
-.sum-cell.pass { color: #4EC9B0; }
-.sum-cell.fail { color: #F44747; }
-.sum-cell.na   { color: #555; }
-.sum-err { font-size: 0.82em; }
+.ov-br   { white-space: nowrap; font-family: monospace; font-size: 0.85em; }
+.ov-sync { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; width: 52px; }
+.ov-pr   { text-align: center; width: 40px; }
+.ov-ci   { text-align: right; font-variant-numeric: tabular-nums; width: 36px; }
+.ov-pass { color: #4EC9B0; }
+.ov-fail { color: #F44747; }
+.ov-warn { color: #DCDCAA; }
 </style>
 </head>
 <body>
