@@ -338,6 +338,52 @@ class ForgeWebviewProvider {
     return html;
   }
 
+  // ── Health summary table (Mode A fallback) ────────────────────────────────────
+
+  _buildHealthSummaryTable(healthMap, codeRepos) {
+    const KEY_COLS = [
+      { key: 'test_metrics',      label: 'Tests' },
+      { key: 'static_analysis',   label: 'Lint' },
+      { key: 'type_coverage',     label: 'Type' },
+      { key: 'dependency_health', label: 'Deps' },
+    ];
+
+    const rows = codeRepos.map(repo => {
+      const result = healthMap[repo.name];
+      if (!result || result.error) {
+        return `<tr>
+          <td class="sum-name">${escHtml(repo.name)}</td>
+          <td colspan="${2 + KEY_COLS.length}" class="sum-err muted">error</td>
+        </tr>`;
+      }
+      const d = result.data;
+      const grade = d.grade ?? '?';
+      const col = GRADE_COLOR[grade] ?? '#888';
+      const score = Math.round((d.overall_score ?? 0) * 100);
+      const scoreCol = score >= 90 ? '#4EC9B0' : score >= 70 ? '#DCDCAA' : score >= 50 ? '#CE9178' : '#F44747';
+
+      const collCells = KEY_COLS.map(({ key }) => {
+        const r = d[key];
+        if (!r || r.skipped) return '<td class="sum-cell na">—</td>';
+        const cls = r.score >= 0.7 ? 'pass' : 'fail';
+        return `<td class="sum-cell ${cls}">${pct(r.score)}</td>`;
+      }).join('');
+
+      return `<tr>
+        <td class="sum-name">${escHtml(repo.name)}</td>
+        <td class="sum-grade"><span class="sum-badge" style="background:${col}">${escHtml(grade)}</span></td>
+        <td class="sum-score" style="color:${scoreCol}">${score}%</td>
+        ${collCells}
+      </tr>`;
+    }).join('');
+
+    const headers = ['Repo', 'Grade', 'Score', ...KEY_COLS.map(c => c.label)];
+    return `<table class="sum-table">
+      <thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
   // ── Health card ───────────────────────────────────────────────────────────────
 
   _healthCard(name, result, condaEnvs) {
@@ -438,7 +484,7 @@ class ForgeWebviewProvider {
   _buildDashboard(workspaceMd, healthMap, codeRepos, configPath, condaEnvs) {
     const overviewHtml = workspaceMd
       ? this._mdTableToHtml(this._extractSection(workspaceMd, 'Repository Overview'), new Set(['Visibility', 'Description']))
-      : null;
+      : this._buildHealthSummaryTable(healthMap, codeRepos);
     const issuesHtml = workspaceMd ? this._extractIssues(workspaceMd) : null;
     const healthHtml = codeRepos.length
       ? codeRepos.map(r => this._healthCard(r.name, healthMap[r.name], condaEnvs)).join('')
@@ -683,6 +729,34 @@ section { margin-bottom: 14px; }
 }
 
 .muted { color: var(--vscode-descriptionForeground, #888); font-size: 0.85em; }
+
+/* Health summary table (Mode A) */
+.sum-table {
+  width: 100%; border-collapse: collapse; font-size: 0.82em; table-layout: auto;
+}
+.sum-table th, .sum-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--vscode-panel-border, #2a2a2a);
+  text-align: left;
+}
+.sum-table th {
+  background: var(--vscode-list-hoverBackground, #252526);
+  font-weight: 600;
+}
+.sum-table tr:hover td { background: var(--vscode-list-hoverBackground, #2a2a2a); }
+.sum-name { font-weight: 600; white-space: nowrap; }
+.sum-grade { text-align: center; width: 44px; }
+.sum-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  font-weight: 800; font-size: 0.8em; color: #1a1a1a;
+}
+.sum-score { text-align: right; font-variant-numeric: tabular-nums; width: 36px; }
+.sum-cell { text-align: right; font-variant-numeric: tabular-nums; width: 32px; }
+.sum-cell.pass { color: #4EC9B0; }
+.sum-cell.fail { color: #F44747; }
+.sum-cell.na   { color: #555; }
+.sum-err { font-size: 0.82em; }
 </style>
 </head>
 <body>
