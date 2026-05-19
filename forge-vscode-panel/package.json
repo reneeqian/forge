@@ -49,11 +49,6 @@
     "configuration": {
       "title": "Forge Panel",
       "properties": {
-        "forge.workspaceConfig": {
-          "type": "string",
-          "default": "",
-          "description": "Optional path to a workspace.toml. Leave empty (default) to use the folders open in the current VS Code workspace."
-        },
         "forge.forgePath": {
           "type": "string",
           "default": "",

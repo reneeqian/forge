@@ -1,7 +1,7 @@
 'use strict';
 // REQ-EXT-004: VS Code Panel Repository Overview Table
 
-// Mock vscode before loading provider (not available outside VS Code host)
+// Mock vscode before loading any module that requires it
 const Module = require('module');
 const _origLoad = Module._load;
 Module._load = function (request, ...args) {
@@ -16,6 +16,7 @@ Module._load = function (request, ...args) {
 };
 
 const assert = require('assert');
+const { buildRepoOverview } = require('../src/shared');
 const { ForgeWebviewProvider } = require('../src/provider');
 
 const provider = new ForgeWebviewProvider({ fsPath: '/fake/ext' });
@@ -46,6 +47,24 @@ function test(name, fn) {
     failed++;
   }
 }
+
+// ── shared.js import ──────────────────────────────────────────────────────────
+
+console.log('\nshared.js');
+
+test('buildRepoOverview is exported from shared.js', () => {
+  assert.strictEqual(typeof buildRepoOverview, 'function');
+});
+
+test('provider._buildRepoOverview delegates to shared buildRepoOverview', () => {
+  const fromProvider = provider._buildRepoOverview(
+    { r: meta('dev') }, { r: health('A') }, [repo('r')]
+  );
+  const fromShared = buildRepoOverview(
+    { r: meta('dev') }, { r: health('A') }, [repo('r')]
+  );
+  assert.strictEqual(fromProvider, fromShared);
+});
 
 // ── Column headers ────────────────────────────────────────────────────────────
 
