@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,29 +54,92 @@ def _detect_landing_branch(repo: Path) -> str:
     return "main"
 
 
-def _unique_line_count(repo: Path, branch: str, landing: str) -> int:
-    """Lines present in branch but absent from origin/<landing>. 0 = fully incorporated."""
-    _, diff_out, _ = _run_git(repo, ["diff", branch, f"origin/{landing}"])
-    return sum(
-        1 for line in diff_out.splitlines()
-        if line.startswith("-") and not line.startswith("---")
-    )
+def _check_merged_pr(repo: Path, branch: str, landing: str) -> tuple[bool, str]:
+    """Level 2: query GitHub for a merged PR from branch → landing.
+
+    Returns (True, "")    — merged PR found, no local commits beyond headRefOid → safe to delete
+    Returns (False, msg)  — local commits exist beyond the PR tip → skip with reason
+    Returns (False, "")   — gh unavailable / not GitHub / no PR → fall through to Level 3
+    """
+    if not shutil.which("gh"):
+        return False, ""
+
+    try:
+        pr_result = subprocess.run(
+            ["gh", "pr", "list", "--head", branch, "--base", landing,
+             "--state", "merged", "--limit", "1", "--json", "number,headRefOid"],
+            capture_output=True, text=True, cwd=str(repo),
+        )
+        if pr_result.returncode != 0:
+            return False, ""
+
+        prs = json.loads(pr_result.stdout or "[]")
+        if not prs:
+            return False, ""
+
+        head_oid = prs[0].get("headRefOid", "")
+        if not head_oid:
+            return False, ""
+
+        rc, log_out, _ = _run_git(repo, ["log", f"{head_oid}..{branch}", "--oneline"])
+        if rc != 0:
+            return False, ""
+
+        if not log_out.strip():
+            return True, ""
+
+        n = len(log_out.strip().splitlines())
+        return False, f"{n} local commit(s) not in merged PR"
+
+    except Exception:
+        return False, ""
 
 
 def _has_unpushed_commits(repo: Path, branch: str, landing: str) -> tuple[bool, str]:
-    """Return (has_unpushed, reason). Handles squash-merge workflows correctly.
+    """Return (has_unpushed, reason). Three-level detection for squash-merge workflows.
 
-    Comparing git diff <branch> origin/<landing> (branch → landing direction)
-    isolates lines that are in the branch but absent from origin/<landing>.
-    Zero such lines means the branch was squash-merged; non-zero means
-    genuinely unpushed content remains.
+    Level 1 — git log (2-dot): if branch has no commits not in origin/<landing>, delete.
+    Level 2 — PR check (gh): if a merged PR exists with no local commits beyond headRefOid, delete.
+    Level 3 — historical diff: compare branch additions to all lines ever added to landing.
     """
-    _, log_out, _ = _run_git(repo, ["log", f"origin/{landing}...{branch}", "--oneline"])
+    # Level 1: fast git log check (handles non-squash merges)
+    _, log_out, _ = _run_git(repo, ["log", f"origin/{landing}..{branch}", "--oneline"])
     if not log_out.strip():
         return False, ""
-    n = _unique_line_count(repo, branch, landing)
-    if n == 0:
+
+    # Level 2: PR-based check (requires gh CLI)
+    pr_merged, pr_skip_reason = _check_merged_pr(repo, branch, landing)
+    if pr_skip_reason:
+        return True, pr_skip_reason
+    if pr_merged:
         return False, ""
+
+    # Level 3: historical git diff fallback (handles post-squash evolution on landing)
+    rc, base, _ = _run_git(repo, ["merge-base", branch, f"origin/{landing}"])
+    if rc != 0 or not base.strip():
+        return True, "no common ancestor with landing"
+    base = base.strip()
+
+    _, branch_diff, _ = _run_git(repo, ["diff", base, branch])
+    branch_added = {
+        line for line in branch_diff.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    }
+    if not branch_added:
+        return False, ""
+
+    _, landing_log, _ = _run_git(
+        repo, ["log", f"{base}..origin/{landing}", "-p", "--no-merges"]
+    )
+    landing_added_ever = {
+        line for line in landing_log.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    }
+    missing = branch_added - landing_added_ever
+    if not missing:
+        return False, ""
+
+    n = len(missing)
     return True, f"{n} unique line{'s' if n != 1 else ''} not in {landing}"
 
 
