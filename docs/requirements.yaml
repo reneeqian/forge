@@ -239,6 +239,50 @@ requirements:
       Merging a panel PR to main triggers release-vscode-panel.yml and creates
       a GitHub Release with the correct tag and .vsix asset.
 
+  - id: EXT-004
+    title: VS Code Panel Repository Overview Table
+    description: >
+      The VS Code panel shall always display a "Repository Overview" table at
+      the top of the dashboard. For each repo the table shall show: name, health
+      grade (A–F colour-coded badge), current local branch (truncated at 18
+      characters), commits ahead of and behind origin/main expressed as ↑N ↓M
+      (both shown even when N=M=0; — if origin/main is unavailable), column
+      header "± main", all open PRs as comma-separated clickable GitHub links
+      (or — if none), and CI check-run pass count out of total (N/M,
+      colour-coded green/yellow/red); when check-runs returns empty the panel
+      shall fall back to the most recent Actions workflow run for that branch.
+    rationale: >
+      A single at-a-glance row per repo gives the user immediate workspace
+      health and branch context without scrolling. Ahead/behind relative to
+      main (not the remote tracking branch) is more useful for tracking how far
+      a branch has diverged from the integration target. Showing all open PRs
+      avoids missing stacked or concurrent PRs. The CI fallback ensures branches
+      like dev that push check runs via workflow jobs still show status.
+    verification: >
+      Open VS Code with workspace folders; the panel's Repository Overview shows
+      columns (Repo, Grade, Br, ± main, PR, CI). The ± main column shows ↑0 ↓0
+      for a branch at the same commit as origin/main, and correct ↑N ↓M counts
+      when diverged. A branch with multiple open PRs shows all links. The dev
+      branch shows CI pass/fail instead of —. Unit tests cover buildRepoOverview
+      with mock data for the above cases.
+
+  - id: EXT-005
+    title: VS Code Panel Git Sync Button and Context Menu
+    description: >
+      The VS Code panel shall provide (a) a "Sync" button in the toolbar that
+      runs `forge gitsync <path>` for each workspace repo in a dedicated "Forge"
+      VS Code terminal, and (b) a right-click context menu on each repo row in
+      the Repository Overview table with a "Git Sync" option that runs
+      `forge gitsync <repo_path>` for that single repo in the same terminal.
+      The terminal shall be reused if already open.
+    rationale: >
+      One-click multi-repo sync and stale-branch cleanup without leaving the editor.
+    verification: >
+      Clicking "Sync All" opens/reuses a "Forge" terminal and runs forge gitsync
+      for all repos. Right-clicking a repo row shows a context menu; "Git Sync"
+      runs forge gitsync for that single repo. Unit tests cover data-repo-path
+      and data-repo-name attributes on overview table rows.
+
   - id: WRK-005
     title: forge dashboard Command
     description: >
@@ -250,3 +294,93 @@ requirements:
       --output <path> to write the JSON report to a file. The default
       highlighted entry shall be the interpreter configured in forge.toml
       [test_runner] python when present.
+
+  # ==============================
+  # Git Sync Requirements
+  # ==============================
+
+  - id: GIT-001
+    title: Repository Discovery
+    description: >
+      forge gitsync shall accept a path argument. If the path itself contains
+      a .git/ directory it is treated as a single repository. Otherwise, all
+      immediate subdirectories that contain .git/ are treated as repositories.
+      If no repositories are found the command shall exit 1 with a clear message.
+    rationale: Supports single-repo and multi-repo (workspace) usage without separate flags.
+    verification: Unit tests covering single-repo path, directory-of-repos path, and empty directory.
+
+  - id: GIT-002
+    title: Remote Fetch and Prune
+    description: >
+      For each discovered repository forge gitsync shall run `git fetch --prune`,
+      updating remote tracking refs and removing refs for remote branches that
+      no longer exist. A fetch failure shall be recorded as an error for that
+      repo; remaining repos shall still be processed.
+    rationale: Prune is necessary before gone-branch detection is accurate.
+    verification: Unit test mocking fetch failure confirms error is captured and other repos continue.
+
+  - id: GIT-003
+    title: Landing Branch Checkout and Pull
+    description: >
+      For each repo, forge gitsync shall detect the landing branch (`dev` if it
+      exists locally or as origin/dev, otherwise `main`), checkout that branch,
+      and pull from origin. This checkout happens before stale branch cleanup
+      (GIT-004), ensuring the user is never left on a branch that is about to
+      be deleted. A checkout or pull failure shall be recorded as an error for
+      that repo without aborting the run.
+    rationale: Keeps the canonical integration branch up to date and guarantees the working branch is safe before cleanup.
+    verification: Unit tests verify dev is preferred over main; pull failure is captured as error; checkout precedes any branch deletion.
+
+  - id: GIT-004
+    title: Stale Branch Cleanup
+    description: >
+      After fetching (GIT-002) and switching to the landing branch (GIT-003),
+      forge gitsync shall identify local branches whose remote tracking ref is
+      marked `[gone]` in `git branch -vv`. For each such branch it shall
+      determine whether the branch content has been incorporated using a
+      three-level detection strategy.
+
+      Level 1 (git log, always): run `git log origin/<landing>..<branch>
+      --oneline` (two-dot). If empty, the branch has no commits not in landing
+      and shall be deleted locally (`git branch -D`).
+
+      Level 2 (PR-based, when `gh` CLI is available): query GitHub for a merged
+      PR targeting <landing> from <branch>. If a merged PR is found, extract its
+      `headRefOid` (the branch tip SHA at merge time) and run `git log
+      <headRefOid>..<branch> --oneline`. If that log is empty, no local commits
+      exist beyond the PR and the branch shall be deleted. If the log is
+      non-empty, the branch has local commits that were not in the PR and shall
+      be skipped with a reason of "N local commit(s) not in merged PR". If `gh`
+      is unavailable or the SHA is not reachable locally, fall through to Level 3.
+
+      Level 3 (historical git diff fallback): find the common ancestor of
+      <branch> and origin/<landing> via `git merge-base`. Collect the lines
+      <branch> added since that ancestor (`git diff <base> <branch>`, `+` lines).
+      Collect all lines ever added to origin/<landing> since the ancestor across
+      all commits (`git log <base>..origin/<landing> -p --no-merges`, `+` lines).
+      If branch additions are a subset of landing's historical additions, the
+      content was incorporated (handles squash followed by later evolution on
+      landing) and the branch shall be deleted. Otherwise skip with a line count
+      reason. If no common ancestor is found, skip conservatively.
+
+      `main` and `dev` shall never be deleted regardless of remote tracking
+      state. Because GIT-003 runs first, the currently-checked-out branch will
+      always be the landing branch, so a previously-active stale branch can be
+      deleted without a "cannot delete current branch" error. Skipped branches
+      shall include a reason in the summary output.
+    rationale: >
+      Automates cleanup of squash-merged and otherwise closed branches. The
+      two-dot log check handles fast-forward merges without a network call. The
+      PR-based check is authoritative for GitHub workflows and safely detects
+      local-only commits via headRefOid. The git fallback handles non-GitHub
+      repos and post-squash landing evolution that caused the previous
+      current-state diff to produce false positive skips. The GIT-003 ordering
+      ensures the user lands on dev/main when their working branch is stale.
+    verification: >
+      Unit tests cover: delete when log empty (Level 1); delete when merged PR
+      found and no local commits beyond headRefOid (Level 2); skip when local
+      commits exist beyond headRefOid (Level 2); delete via Level 3 when gh
+      unavailable and historical log contains branch additions; skip via Level 3
+      when content not in historical log; post-squash landing evolution correctly
+      detected as incorporated; never delete main or dev; currently-checked-out
+      stale branch deleted after GIT-003 checkout.

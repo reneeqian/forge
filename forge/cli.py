@@ -23,7 +23,18 @@ from rich.table import Table
 from forge.aggregator import Aggregator
 from forge.config import load_config
 from forge.env_discovery import default_index, discover_envs, resolve_env
-from forge.models import CollectorResult, ProjectHealthReport
+from forge.models import (
+    CollectorResult,
+    ComplexityResult,
+    DeadCodeResult,
+    DependencyHealthResult,
+    MutationTestingResult,
+    ProjectHealthReport,
+    RequirementsCoverageResult,
+    StaticAnalysisResult,
+    TestMetricsResult,
+    TypeCoverageResult,
+)
 from forge.scaffolder.engine import ScaffoldConfig, ScaffoldEngine
 from forge.scaffolder.github_setup import GitHubConfig
 from forge.workspace.collector import WorkspaceCollector
@@ -248,77 +259,84 @@ def _score_colour(score: float | None) -> str:
     return "red"
 
 
+def _fmt_test_metrics(r: TestMetricsResult) -> str:
+    if r.details.get("coverage_only"):
+        cov = f"{r.line_coverage:.1f}%" if r.line_coverage is not None else "N/A"
+        return f"coverage {cov} (coverage-only mode)"
+    cov = f", coverage {r.line_coverage:.1f}%" if r.line_coverage is not None else ""
+    return f"{r.passed}/{r.total} tests passed{cov}"
+
+
+def _fmt_complexity(r: ComplexityResult) -> str:
+    parts = []
+    if r.avg_cyclomatic is not None:
+        parts.append(f"cyclomatic CC: {r.avg_cyclomatic:.1f}")
+    if r.maintainability_index is not None:
+        parts.append(f"MI: {r.maintainability_index:.1f}")
+    return ", ".join(parts) or "—"
+
+
+def _fmt_dependency_health(r: DependencyHealthResult) -> str:
+    if r.vulnerable_packages == 0:
+        return f"{r.total_packages} packages, no CVEs"
+    return f"{r.vulnerable_packages} vulnerable / {r.total_packages} packages"
+
+
+def _fmt_requirements_coverage(r: RequirementsCoverageResult) -> str:
+    return f"{r.covered_requirements}/{r.total_requirements} requirements covered"
+
+
+def _fmt_static_analysis(r: StaticAnalysisResult) -> str:
+    parts = []
+    if r.safe_errors:
+        parts.append(f"{r.safe_errors} safe")
+    if r.unsafe_errors:
+        parts.append(f"{r.unsafe_errors} unsafe")
+    if r.manual_errors:
+        parts.append(f"{r.manual_errors} manual")
+    breakdown = f" ({' · '.join(parts)})" if parts else ""
+    if r.error_density is not None:
+        return f"{r.total_errors} errors{breakdown}, {r.error_density:.1f}/1k lines (weighted)"
+    return f"{r.total_errors} errors{breakdown}"
+
+
+def _fmt_type_coverage(r: TypeCoverageResult) -> str:
+    detail = f"{r.total_errors} mypy errors"
+    if r.files_checked:
+        detail += f" ({r.files_checked} files)"
+    return detail
+
+
+def _fmt_dead_code(r: DeadCodeResult) -> str:
+    if r.unused_density is not None:
+        return f"{r.unused_items} unused items, {r.unused_density:.1f}/1k lines"
+    return f"{r.unused_items} unused items"
+
+
+def _fmt_mutation_testing(r: MutationTestingResult) -> str:
+    if r.total_mutants == 0:
+        return "no mutants generated"
+    pct = (r.killed_mutants / r.total_mutants) * 100
+    return f"{r.killed_mutants}/{r.total_mutants} mutants killed ({pct:.0f}%)"
+
+
+_DETAIL_FORMATTERS: dict[type, object] = {
+    TestMetricsResult: _fmt_test_metrics,
+    ComplexityResult: _fmt_complexity,
+    DependencyHealthResult: _fmt_dependency_health,
+    RequirementsCoverageResult: _fmt_requirements_coverage,
+    StaticAnalysisResult: _fmt_static_analysis,
+    TypeCoverageResult: _fmt_type_coverage,
+    DeadCodeResult: _fmt_dead_code,
+    MutationTestingResult: _fmt_mutation_testing,
+}
+
+
 def _collector_detail(result: CollectorResult) -> str:
-    """One-line human summary for each collector type."""
-    from forge.models import (
-        ComplexityResult,
-        DeadCodeResult,
-        DependencyHealthResult,
-        MutationTestingResult,
-        RequirementsCoverageResult,
-        StaticAnalysisResult,
-        TestMetricsResult,
-        TypeCoverageResult,
-    )
-
-    if isinstance(result, TestMetricsResult):
-        if result.details.get("coverage_only"):
-            cov = f"{result.line_coverage:.1f}%" if result.line_coverage is not None else "N/A"
-            return f"coverage {cov} (coverage-only mode)"
-        cov = f", coverage {result.line_coverage:.1f}%" if result.line_coverage is not None else ""
-        return f"{result.passed}/{result.total} tests passed{cov}"
-
-    if isinstance(result, ComplexityResult):
-        parts = []
-        if result.avg_cyclomatic is not None:
-            parts.append(f"cyclomatic CC: {result.avg_cyclomatic:.1f}")
-        if result.maintainability_index is not None:
-            parts.append(f"MI: {result.maintainability_index:.1f}")
-        return ", ".join(parts) or "—"
-
-    if isinstance(result, DependencyHealthResult):
-        if result.vulnerable_packages == 0:
-            return f"{result.total_packages} packages, no CVEs"
-        return f"{result.vulnerable_packages} vulnerable / {result.total_packages} packages"
-
-    if isinstance(result, RequirementsCoverageResult):
-        return (
-            f"{result.covered_requirements}/{result.total_requirements} requirements covered"
-        )
-
-    if isinstance(result, StaticAnalysisResult):
-        parts = []
-        if result.safe_errors:
-            parts.append(f"{result.safe_errors} safe")
-        if result.unsafe_errors:
-            parts.append(f"{result.unsafe_errors} unsafe")
-        if result.manual_errors:
-            parts.append(f"{result.manual_errors} manual")
-        breakdown = f" ({' · '.join(parts)})" if parts else ""
-        if result.error_density is not None:
-            return f"{result.total_errors} errors{breakdown}, {result.error_density:.1f}/1k lines (weighted)"
-        return f"{result.total_errors} errors{breakdown}"
-
-    if isinstance(result, TypeCoverageResult):
-        detail = f"{result.total_errors} mypy errors"
-        if result.files_checked:
-            detail += f" ({result.files_checked} files)"
-        return detail
-
-    if isinstance(result, DeadCodeResult):
-        if result.unused_density is not None:
-            return f"{result.unused_items} unused items, {result.unused_density:.1f}/1k lines"
-        return f"{result.unused_items} unused items"
-
-    if isinstance(result, MutationTestingResult):
-        if result.total_mutants == 0:
-            return "no mutants generated"
-        pct = (result.killed_mutants / result.total_mutants) * 100
-        return (
-            f"{result.killed_mutants}/{result.total_mutants} mutants killed ({pct:.0f}%)"
-        )
-
-    return str(result.details) if result.details else "—"
+    formatter = _DETAIL_FORMATTERS.get(type(result))
+    if formatter is None:
+        return str(result.details) if result.details else "—"
+    return formatter(result)  # type: ignore[operator]
 
 
 # ── forge workspace ───────────────────────────────────────────────────────────
@@ -475,6 +493,57 @@ def dashboard(
     if output:
         output.write_text(report.model_dump_json(indent=2))
         console.print(f"\n[dim]Report written to {output}[/dim]")
+
+
+# ── forge gitsync ─────────────────────────────────────────────────────────────
+
+
+@app.command()
+def gitsync(
+    target: Path = typer.Argument(
+        default=Path("."),
+        help="Repo path, or directory containing repos. Defaults to current directory.",
+        show_default=True,
+    ),
+) -> None:
+    """Fetch, pull, and prune stale branches across one or more repos. GIT-001, GIT-002, GIT-003, GIT-004"""
+    from forge.git_sync import sync as run_sync
+
+    target = target.resolve()
+    if not target.exists():
+        console.print(f"[red]✗[/red] Path not found: {target}")
+        raise typer.Exit(1)
+
+    with console.status("[bold cyan]Syncing repos…[/bold cyan]"):
+        result = run_sync(target)
+
+    if not result.repos:
+        console.print("[yellow]No git repositories found.[/yellow]")
+        raise typer.Exit(1)
+
+    table = Table(box=box.SIMPLE_HEAD, show_header=True, padding=(0, 2))
+    table.add_column("Repo", style="bold")
+    table.add_column("Branch")
+    table.add_column("Pulled", justify="center")
+    table.add_column("Deleted")
+    table.add_column("Skipped (unpushed)", style="yellow")
+    table.add_column("Errors", style="red")
+
+    for r in result.repos:
+        skipped_text = ", ".join(
+            f"{b} ({r.skip_reasons.get(b, 'unpushed')})" for b in r.skipped
+        ) or "—"
+        table.add_row(
+            r.repo.name,
+            r.landed_on or "—",
+            "[green]✓[/green]" if r.pulled else "[red]✗[/red]",
+            ", ".join(r.deleted) or "—",
+            skipped_text,
+            ", ".join(r.errors) or "—",
+        )
+
+    console.print()
+    console.print(table)
 
 
 if __name__ == "__main__":
