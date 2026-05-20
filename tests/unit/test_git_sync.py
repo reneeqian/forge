@@ -249,7 +249,7 @@ class TestStaleBranchCleanup:
         _make_git_repo(tmp_path)
         responses = {
             **self._base(self._VV_GONE),
-            ("log", "origin/dev...stale-feat", "--oneline"): _proc(stdout=""),
+            ("log", "origin/dev..stale-feat", "--oneline"): _proc(stdout=""),
             ("branch", "-D", "stale-feat"): _proc(stdout="Deleted branch stale-feat."),
         }
         with patch("subprocess.run", side_effect=_git_mock(responses)):
@@ -265,10 +265,13 @@ class TestStaleBranchCleanup:
         _make_git_repo(tmp_path)
         responses = {
             **self._base(self._VV_GONE_UNPUSHED),
-            ("log", "origin/dev...wip-branch", "--oneline"): _proc(stdout="def5678 wip commit\n"),
-            ("diff", "wip-branch", "origin/dev"): _proc(stdout="-x = 1\n"),
+            ("log", "origin/dev..wip-branch", "--oneline"): _proc(stdout="def5678 wip commit\n"),
+            ("merge-base", "wip-branch", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "wip-branch"): _proc(stdout="+x = 1\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout=""),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = sync_repo(tmp_path)
 
         assert "wip-branch" in result.skipped
@@ -299,19 +302,22 @@ class TestStaleBranchCleanup:
         )
         responses = {
             **self._base(vv),
-            ("log", "origin/dev...clean-feat", "--oneline"): _proc(stdout=""),
-            ("log", "origin/dev...wip-feat", "--oneline"): _proc(stdout="222 wip commit\n"),
-            ("diff", "wip-feat", "origin/dev"): _proc(stdout="-x = 1\n"),
+            ("log", "origin/dev..clean-feat", "--oneline"): _proc(stdout=""),
+            ("log", "origin/dev..wip-feat", "--oneline"): _proc(stdout="222 wip commit\n"),
+            ("merge-base", "wip-feat", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "wip-feat"): _proc(stdout="+x = 1\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout=""),
             ("branch", "-D", "clean-feat"): _proc(stdout="Deleted branch clean-feat."),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = sync_repo(tmp_path)
 
         assert "clean-feat" in result.deleted
         assert "wip-feat" in result.skipped
 
     def test_squash_merged_branch_is_deleted_despite_commit_history_mismatch(self, tmp_path):
-        """GIT-004: gone branch whose commits were squash-merged is deleted when content diff is empty."""
+        """GIT-004: gone branch whose commits were squash-merged is deleted via Level 3 fallback."""
         from forge.git_sync import sync_repo
 
         _make_git_repo(tmp_path)
@@ -319,20 +325,25 @@ class TestStaleBranchCleanup:
             "* dev            abc [origin/dev] latest\n"
             "  squash-feat    111 [origin/squash-feat: gone] squash merged\n"
         )
+        # Level 1 non-empty (squash commit has different SHA), Level 2 falls through,
+        # Level 3: branch added "+x = 1", landing's historical log also has "+x = 1" → delete.
         responses = {
             **self._base(vv),
-            ("log", "origin/dev...squash-feat", "--oneline"): _proc(stdout="111 some commit\n"),
-            ("diff", "squash-feat", "origin/dev"): _proc(stdout=""),
+            ("log", "origin/dev..squash-feat", "--oneline"): _proc(stdout="111 some commit\n"),
+            ("merge-base", "squash-feat", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "squash-feat"): _proc(stdout="+x = 1\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout="+x = 1\n"),
             ("branch", "-D", "squash-feat"): _proc(),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = sync_repo(tmp_path)
 
         assert "squash-feat" in result.deleted
         assert result.skipped == []
 
     def test_branch_with_real_unmerged_content_is_skipped(self, tmp_path):
-        """GIT-004: gone branch with both commit history mismatch and non-empty diff is skipped."""
+        """GIT-004: gone branch with genuinely unpushed content is skipped via Level 3 fallback."""
         from forge.git_sync import sync_repo
 
         _make_git_repo(tmp_path)
@@ -342,10 +353,13 @@ class TestStaleBranchCleanup:
         )
         responses = {
             **self._base(vv),
-            ("log", "origin/dev...wip-real", "--oneline"): _proc(stdout="222 wip commit\n"),
-            ("diff", "wip-real", "origin/dev"): _proc(stdout="-x = 1\n"),
+            ("log", "origin/dev..wip-real", "--oneline"): _proc(stdout="222 wip commit\n"),
+            ("merge-base", "wip-real", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "wip-real"): _proc(stdout="+x = 1\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout=""),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = sync_repo(tmp_path)
 
         assert "wip-real" in result.skipped
@@ -362,15 +376,114 @@ class TestStaleBranchCleanup:
         )
         responses = {
             **self._base(vv),
-            ("log", "origin/dev...my-wip", "--oneline"): _proc(stdout="111 wip\n"),
-            ("diff", "my-wip", "origin/dev"): _proc(stdout="-x = 1\n-y = 2\n"),
+            ("log", "origin/dev..my-wip", "--oneline"): _proc(stdout="111 wip\n"),
+            ("merge-base", "my-wip", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "my-wip"): _proc(stdout="+x = 1\n+y = 2\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout=""),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = sync_repo(tmp_path)
 
         assert "my-wip" in result.skipped
         assert "my-wip" in result.skip_reasons
         assert "2" in result.skip_reasons["my-wip"]
+
+    # ── new GIT-004 Level 2 / Level 3 tests (fail until implementation) ──────
+
+    def test_squash_merged_via_pr_is_deleted(self, tmp_path):
+        """GIT-004 Level 2: merged PR with no local commits beyond headRefOid → delete."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev          abc [origin/dev] latest\n"
+            "  squash-feat  111 [origin/squash-feat: gone] squash merged\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev..squash-feat", "--oneline"): _proc(stdout="111 some commit\n"),
+            ("branch", "-D", "squash-feat"): _proc(),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(True, "")):
+            result = sync_repo(tmp_path)
+
+        assert "squash-feat" in result.deleted
+        assert result.skipped == []
+
+    def test_squash_merged_via_pr_with_local_commits_is_skipped(self, tmp_path):
+        """GIT-004 Level 2: merged PR but local commits beyond headRefOid → skip with reason."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev          abc [origin/dev] latest\n"
+            "  feat-local   111 [origin/feat-local: gone] wip\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev..feat-local", "--oneline"): _proc(stdout="111 local commit\n"),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr",
+                   return_value=(False, "1 local commit(s) not in merged PR")):
+            result = sync_repo(tmp_path)
+
+        assert "feat-local" in result.skipped
+        assert result.skip_reasons.get("feat-local") == "1 local commit(s) not in merged PR"
+        assert result.deleted == []
+
+    def test_squash_merged_with_post_squash_landing_evolution_is_deleted(self, tmp_path):
+        """GIT-004 Level 3: squash-merged branch whose content was later modified on landing is deleted."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev          abc [origin/dev] latest\n"
+            "  squash-old   111 [origin/squash-old: gone] squash merged\n"
+        )
+        # branch added "+x = 2"; squash added "+x = 2" to landing; later commit changed to "+x = 3".
+        # current-state diff would show "-x = 2" (false positive skip), but historical log has "+x = 2".
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev..squash-old", "--oneline"): _proc(stdout="111 old commit\n"),
+            ("merge-base", "squash-old", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "squash-old"): _proc(stdout="+x = 2\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(
+                stdout="+x = 2\n+x = 3\n"
+            ),
+            ("branch", "-D", "squash-old"): _proc(),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
+            result = sync_repo(tmp_path)
+
+        assert "squash-old" in result.deleted
+        assert result.skipped == []
+
+    def test_genuinely_unpushed_branch_skipped_via_level3(self, tmp_path):
+        """GIT-004 Level 3: branch with content absent from landing's historical log is skipped."""
+        from forge.git_sync import sync_repo
+
+        _make_git_repo(tmp_path)
+        vv = (
+            "* dev      abc [origin/dev] latest\n"
+            "  wip-real 111 [origin/wip-real: gone] wip\n"
+        )
+        responses = {
+            **self._base(vv),
+            ("log", "origin/dev..wip-real", "--oneline"): _proc(stdout="111 wip commit\n"),
+            ("merge-base", "wip-real", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "wip-real"): _proc(stdout="+my_wip_line\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout="+other_content\n"),
+        }
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
+            result = sync_repo(tmp_path)
+
+        assert "wip-real" in result.skipped
+        assert result.deleted == []
 
     def test_git003_checkout_precedes_git004_deletion(self, tmp_path):
         """GIT-003, GIT-004: landing branch checkout happens before stale branch deletion."""
@@ -396,7 +509,7 @@ class TestStaleBranchCleanup:
                 ("branch", "--list", "dev"): _proc(stdout="  dev\n"),
                 ("pull", "origin", "dev"): _proc(stdout="Already up to date."),
                 ("branch", "-vv"): _proc(stdout=vv),
-                ("log", "origin/dev...old-branch", "--oneline"): _proc(stdout=""),
+                ("log", "origin/dev..old-branch", "--oneline"): _proc(stdout=""),
             }
             return responses.get(args, _proc())
 
@@ -441,8 +554,8 @@ class TestGitsyncCommand:
         assert result.exit_code == 0
         assert repo.name in result.output
 
-    def test_skipped_branch_appears_in_output(self, tmp_path):
-        """GIT-004: branch skipped due to unpushed commits is visible in the CLI output."""
+    def test_skipped_branch_appears_in_output_with_skip_marker(self, tmp_path):
+        """GIT-004: branch skipped due to unpushed commits appears in CLI output as skipped (not deleted)."""
         _make_git_repo(tmp_path)
         vv = (
             "* dev     abc [origin/dev] ok\n"
@@ -454,9 +567,17 @@ class TestGitsyncCommand:
             ("checkout", "dev"): _proc(),
             ("pull", "origin", "dev"): _proc(stdout="Already up to date."),
             ("branch", "-vv"): _proc(stdout=vv),
-            ("log", "origin/dev...my-wip", "--oneline"): _proc(stdout="111 wip\n"),
+            ("log", "origin/dev..my-wip", "--oneline"): _proc(stdout="111 wip\n"),
+            ("merge-base", "my-wip", "origin/dev"): _proc(stdout="base000\n"),
+            ("diff", "base000", "my-wip"): _proc(stdout="+wip_content\n"),
+            ("log", "base000..origin/dev", "-p", "--no-merges"): _proc(stdout=""),
         }
-        with patch("subprocess.run", side_effect=_git_mock(responses)):
+        with patch("subprocess.run", side_effect=_git_mock(responses)), \
+             patch("forge.git_sync._check_merged_pr", return_value=(False, "")):
             result = runner.invoke(app, ["gitsync", str(tmp_path)])
 
+        assert result.exit_code == 0
         assert "my-wip" in result.output
+        # "not in dev" only appears in the Skipped column's skip reason; deleted branches
+        # never produce this text, so its presence proves the branch was skipped, not deleted.
+        assert "not in dev" in result.output
