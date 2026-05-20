@@ -27,8 +27,8 @@ function ov(metaMap, healthMap, repos) {
 
 function repo(name) { return { name, local_path: `/fake/${name}` }; }
 
-function meta(branch, ahead = 0, behind = 0, prNumber = null, prUrl = null, ciPassed = null, ciTotal = null) {
-  return { branch, ahead, behind, prNumber, prUrl, ciPassed, ciTotal };
+function meta(branch, aheadMain = 0, behindMain = 0, prs = [], ciPassed = null, ciTotal = null) {
+  return { branch, aheadMain, behindMain, prs, ciPassed, ciTotal };
 }
 
 function health(grade, score = 0.9) {
@@ -72,7 +72,7 @@ console.log('\n_buildRepoOverview — headers');
 
 test('renders all six column headers', () => {
   const html = ov({ r: meta('dev') }, { r: health('A') }, [repo('r')]);
-  for (const h of ['Repo', 'Grade', 'Br', '±', 'PR', 'CI'])
+  for (const h of ['Repo', 'Grade', 'Br', '± main', 'PR', 'CI'])
     assert.ok(html.includes(`<th>${h}</th>`), `missing header: ${h}`);
 });
 
@@ -123,30 +123,32 @@ test('shows dash when no branch (detached or null)', () => {
 
 console.log('\n_buildRepoOverview — ahead/behind');
 
-test('shows ↑N when ahead', () => {
+test('shows ↑N ↓0 when ahead of main', () => {
   const html = ov({ r: meta('dev', 3, 0) }, { r: health('A') }, [repo('r')]);
-  assert.ok(html.includes('↑3'));
+  assert.ok(html.includes('↑3') && html.includes('↓0'));
 });
 
-test('shows ↓M when behind', () => {
+test('shows ↑0 ↓M when behind main', () => {
   const html = ov({ r: meta('dev', 0, 2) }, { r: health('A') }, [repo('r')]);
-  assert.ok(html.includes('↓2'));
+  assert.ok(html.includes('↑0') && html.includes('↓2'));
 });
 
-test('shows both ↑N ↓M when diverged', () => {
+test('shows both ↑N ↓M when diverged from main', () => {
   const html = ov({ r: meta('dev', 4, 1) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('↑4') && html.includes('↓1'));
 });
 
-test('shows ✓ when in sync with upstream', () => {
+test('shows ↑0 ↓0 when in sync with main', () => {
   const html = ov({ r: meta('dev', 0, 0) }, { r: health('A') }, [repo('r')]);
-  assert.ok(html.includes('✓'));
+  assert.ok(html.includes('↑0') && html.includes('↓0'));
+  assert.ok(!html.includes('✓'), 'should not show checkmark');
 });
 
-test('shows dash when branch is null (no upstream context)', () => {
-  const html = ov({ r: meta(null) }, { r: health('A') }, [repo('r')]);
+test('shows dash when origin/main unavailable (null counts)', () => {
+  const m = { branch: 'dev', aheadMain: null, behindMain: null, prs: [], ciPassed: null, ciTotal: null };
+  const html = ov({ r: m }, { r: health('A') }, [repo('r')]);
   const dashCount = (html.match(/—/g) ?? []).length;
-  assert.ok(dashCount >= 1, 'should have at least one dash for missing branch');
+  assert.ok(dashCount >= 1, 'should have at least one dash when main counts unavailable');
 });
 
 // ── PR ────────────────────────────────────────────────────────────────────────
@@ -155,7 +157,7 @@ console.log('\n_buildRepoOverview — PR');
 
 test('shows #N link when PR exists', () => {
   const html = ov(
-    { r: meta('dev', 0, 0, 42, 'https://github.com/x/y/pull/42') },
+    { r: meta('dev', 0, 0, [{ number: 42, url: 'https://github.com/x/y/pull/42' }]) },
     { r: health('A') }, [repo('r')]
   );
   assert.ok(html.includes('#42'), 'should show PR number');
@@ -163,7 +165,7 @@ test('shows #N link when PR exists', () => {
 });
 
 test('shows dash when no open PR', () => {
-  const html = ov({ r: meta('dev', 0, 0, null) }, { r: health('A') }, [repo('r')]);
+  const html = ov({ r: meta('dev', 0, 0, []) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('—'));
 });
 
@@ -172,25 +174,25 @@ test('shows dash when no open PR', () => {
 console.log('\n_buildRepoOverview — CI');
 
 test('shows N/M with ov-pass when all checks pass', () => {
-  const html = ov({ r: meta('dev', 0, 0, null, null, 5, 5) }, { r: health('A') }, [repo('r')]);
+  const html = ov({ r: meta('dev', 0, 0, [], 5, 5) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('5/5'));
   assert.ok(html.includes('ov-pass'));
 });
 
 test('shows N/M with ov-warn when partial pass', () => {
-  const html = ov({ r: meta('dev', 0, 0, null, null, 3, 5) }, { r: health('A') }, [repo('r')]);
+  const html = ov({ r: meta('dev', 0, 0, [], 3, 5) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('3/5'));
   assert.ok(html.includes('ov-warn'));
 });
 
 test('shows N/M with ov-fail when none pass', () => {
-  const html = ov({ r: meta('dev', 0, 0, null, null, 0, 4) }, { r: health('A') }, [repo('r')]);
+  const html = ov({ r: meta('dev', 0, 0, [], 0, 4) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('0/4'));
   assert.ok(html.includes('ov-fail'));
 });
 
 test('shows dash when CI data unavailable', () => {
-  const html = ov({ r: meta('dev', 0, 0, null, null, null, null) }, { r: health('A') }, [repo('r')]);
+  const html = ov({ r: meta('dev', 0, 0, [], null, null) }, { r: health('A') }, [repo('r')]);
   assert.ok(html.includes('—'));
 });
 
@@ -201,8 +203,8 @@ console.log('\n_buildRepoOverview — multiple repos');
 test('renders all repos in a single table', () => {
   const html = ov(
     {
-      repo_a: meta('main', 0, 0, null, null, 3, 3),
-      repo_b: meta('dev',  2, 0, 7, 'https://github.com/x/y/pull/7', null, null),
+      repo_a: meta('main', 0, 0, [], 3, 3),
+      repo_b: meta('dev',  2, 0, [{ number: 7, url: 'https://github.com/x/y/pull/7' }], null, null),
     },
     { repo_a: health('A', 0.95), repo_b: health('C', 0.72) },
     [repo('repo_a'), repo('repo_b')]
@@ -231,6 +233,70 @@ test('escapes special chars in repo path attribute', () => {
   const html = ov({ r: meta('dev') }, { r: health('A') }, [{ name: 'r', local_path: '/path with "quotes"' }]);
   assert.ok(!html.includes('"/path with "quotes""'), 'unescaped quotes would break HTML attribute');
   assert.ok(html.includes('&quot;'), 'quotes should be HTML-escaped');
+});
+
+// ── Phase 1: ± main column header ────────────────────────────────────────────
+
+console.log('\n_buildRepoOverview — ± main column (EXT-004 amended)');
+
+test('column header is "± main"', () => {
+  const html = ov({ r: meta('dev') }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('<th>± main</th>'), 'header should be "± main"');
+});
+
+// ── Phase 1: zero state shows ↑0 ↓0, never ✓ ────────────────────────────────
+
+test('shows ↑0 ↓0 when branch is at same commit as origin/main', () => {
+  const html = ov({ r: meta('dev', 0, 0) }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('↑0') && html.includes('↓0'), 'should show ↑0 ↓0 when fully synced');
+  assert.ok(!html.includes('✓'), 'should not show checkmark');
+});
+
+test('shows ↑N ↓0 when N commits ahead of main', () => {
+  const html = ov({ r: meta('dev', 5, 0) }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('↑5') && html.includes('↓0'));
+});
+
+test('shows ↑0 ↓M when M commits behind main', () => {
+  const html = ov({ r: meta('dev', 0, 3) }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('↑0') && html.includes('↓3'));
+});
+
+test('shows ↑N ↓M when diverged from main', () => {
+  const html = ov({ r: meta('dev', 4, 2) }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('↑4') && html.includes('↓2'));
+});
+
+// ── Phase 3: PR column shows all open PRs ────────────────────────────────────
+
+console.log('\n_buildRepoOverview — all open PRs (EXT-004 amended)');
+
+test('shows #N link when one open PR (prs array)', () => {
+  const html = ov(
+    { r: meta('dev', 0, 0, [{ number: 42, url: 'https://github.com/x/y/pull/42' }]) },
+    { r: health('A') }, [repo('r')]
+  );
+  assert.ok(html.includes('#42'), 'should show PR number');
+  assert.ok(html.includes('https://github.com/x/y/pull/42'), 'should include PR URL');
+});
+
+test('shows all open PRs as comma-separated links', () => {
+  const html = ov(
+    { r: meta('dev', 0, 0, [
+        { number: 12, url: 'https://github.com/x/y/pull/12' },
+        { number: 14, url: 'https://github.com/x/y/pull/14' },
+      ]) },
+    { r: health('A') }, [repo('r')]
+  );
+  assert.ok(html.includes('#12'), 'should show first PR');
+  assert.ok(html.includes('#14'), 'should show second PR');
+  assert.ok(html.includes('https://github.com/x/y/pull/12'));
+  assert.ok(html.includes('https://github.com/x/y/pull/14'));
+});
+
+test('shows — when prs is empty array', () => {
+  const html = ov({ r: meta('dev', 0, 0, []) }, { r: health('A') }, [repo('r')]);
+  assert.ok(html.includes('—'));
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────

@@ -164,8 +164,8 @@ function discoverCondaEnvs() {
 
 async function gatherRepoMeta(codeRepos) {
   const results = await Promise.all(codeRepos.map(async repo => {
-    const base = { name: repo.name, branch: null, ahead: 0, behind: 0,
-                   prNumber: null, prUrl: null, ciPassed: null, ciTotal: null };
+    const base = { name: repo.name, branch: null, aheadMain: null, behindMain: null,
+                   prs: [], ciPassed: null, ciTotal: null };
     try {
       const p = repo.local_path;
 
@@ -175,9 +175,13 @@ async function gatherRepoMeta(codeRepos) {
       for (const line of statusOut.split('\n')) {
         const headM = line.match(/^# branch\.head (.+)$/);
         if (headM && headM[1] !== '(detached)') base.branch = headM[1];
-        const abM = line.match(/^# branch\.ab \+(\d+) -(\d+)$/);
-        if (abM) { base.ahead = +abM[1]; base.behind = +abM[2]; }
       }
+
+      const abOut = await execCmd(
+        `git -C "${p}" rev-list --left-right --count origin/main...HEAD 2>/dev/null || echo ''`
+      );
+      const abM = abOut.trim().match(/^(\d+)\t(\d+)$/);
+      if (abM) { base.behindMain = +abM[1]; base.aheadMain = +abM[2]; }
 
       const remoteOut = await execCmd(
         `git -C "${p}" remote get-url origin 2>/dev/null || echo ''`
@@ -187,10 +191,10 @@ async function gatherRepoMeta(codeRepos) {
 
       if (slug && base.branch) {
         const owner = slug.split('/')[0];
-        await execCmd(`gh api "repos/${slug}/pulls?state=open&head=${owner}:${base.branch}&per_page=1"`)
+        await execCmd(`gh api "repos/${slug}/pulls?state=open&head=${owner}:${base.branch}&per_page=10"`)
           .then(out => {
-            const pr = JSON.parse(out)?.[0];
-            if (pr) { base.prNumber = pr.number; base.prUrl = pr.html_url; }
+            const items = JSON.parse(out) ?? [];
+            base.prs = items.map(pr => ({ number: pr.number, url: pr.html_url }));
           }).catch(() => {});
         await execCmd(`gh api "repos/${slug}/commits/${base.branch}/check-runs"`)
           .then(out => {
@@ -200,6 +204,16 @@ async function gatherRepoMeta(codeRepos) {
               base.ciPassed = runs.filter(r => r.conclusion === 'success').length;
             }
           }).catch(() => {});
+        if (base.ciTotal === null) {
+          await execCmd(`gh api "repos/${slug}/actions/runs?branch=${base.branch}&per_page=1"`)
+            .then(out => {
+              const run = JSON.parse(out)?.workflow_runs?.[0];
+              if (run) {
+                base.ciTotal = 1;
+                base.ciPassed = run.conclusion === 'success' ? 1 : 0;
+              }
+            }).catch(() => {});
+        }
       }
     } catch {}
     return base;
@@ -221,16 +235,17 @@ function buildRepoOverview(metaMap, healthMap, codeRepos) {
     const brText = brRaw ? brRaw.slice(0, 18) + (brRaw.length > 18 ? '…' : '') : '—';
 
     let syncHtml = '—';
-    if (meta.branch !== null && meta.branch !== undefined) {
-      const parts = [];
-      if (meta.ahead)  parts.push(`↑${meta.ahead}`);
-      if (meta.behind) parts.push(`↓${meta.behind}`);
-      syncHtml = parts.length ? escHtml(parts.join(' ')) : '✓';
+    if (meta.aheadMain !== null && meta.aheadMain !== undefined &&
+        meta.behindMain !== null && meta.behindMain !== undefined) {
+      syncHtml = escHtml(`↑${meta.aheadMain} ↓${meta.behindMain}`);
     }
 
-    const prHtml = meta.prNumber
-      ? `<a href="#" data-url="${escHtml(meta.prUrl)}">#${meta.prNumber}</a>`
-      : '—';
+    let prHtml = '—';
+    if (meta.prs && meta.prs.length) {
+      prHtml = meta.prs.map(pr =>
+        `<a href="#" data-url="${escHtml(pr.url)}">#${pr.number}</a>`
+      ).join(', ');
+    }
 
     let ciHtml = '—';
     if (meta.ciTotal !== null) {
@@ -251,7 +266,7 @@ function buildRepoOverview(metaMap, healthMap, codeRepos) {
 
   return `<table class="sum-table">
     <thead><tr>
-      <th>Repo</th><th>Grade</th><th>Br</th><th>±</th><th>PR</th><th>CI</th>
+      <th>Repo</th><th>Grade</th><th>Br</th><th>± main</th><th>PR</th><th>CI</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
