@@ -1,4 +1,4 @@
-"""Unit tests for StaticAnalysisCollector — REQ-011."""
+"""Unit tests for StaticAnalysisCollector — COL-006."""
 
 from __future__ import annotations
 

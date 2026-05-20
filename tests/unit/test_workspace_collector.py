@@ -1,4 +1,4 @@
-"""Unit tests for WorkspaceCollector — REQ-017."""
+"""Unit tests for WorkspaceCollector — WRK-002."""
 
 from contextlib import ExitStack
 from pathlib import Path

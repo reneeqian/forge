@@ -1,4 +1,4 @@
-"""Unit tests for the Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001, WRK-005."""
+"""Unit tests for the Forge CLI — CLI-001, CLI-002, CLI-003, WRK-001, WRK-003, WRK-005."""
 
 from __future__ import annotations
 

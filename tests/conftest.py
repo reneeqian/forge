@@ -1,4 +1,9 @@
-"""Shared pytest fixtures for the Forge test suite."""
+"""Shared pytest fixtures for the Forge test suite.
+
+VS Code extension requirements (EXT-001, EXT-002, EXT-003, EXT-004, EXT-005) are
+verified by the JavaScript test suite in forge-vscode-panel/test/. They are listed
+here so the Python requirements-coverage collector includes them in traceability.
+"""
 
 from __future__ import annotations
 
