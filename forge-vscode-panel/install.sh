@@ -5,8 +5,10 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PUBLISHER=$(node -e "process.stdout.write(require('./package.json').publisher)")
+NAME=$(node -e "process.stdout.write(require('./package.json').name)")
 VERSION=$(node -e "process.stdout.write(require('./package.json').version)")
-DEST="$HOME/.vscode/extensions/forge-panel-$VERSION"
+DEST="$HOME/.vscode/extensions/${PUBLISHER}.${NAME}-${VERSION}"
 
 if [ -L "$DEST" ]; then
   echo "Updating symlink: $DEST -> $SCRIPT_DIR"
