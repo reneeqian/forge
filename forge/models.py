@@ -213,7 +213,9 @@ class ProjectHealthReport(BaseModel):
     @computed_field  # type: ignore[misc]
     @property
     def grade(self) -> str:
-        """Letter grade derived from overall_score."""
+        """Letter grade derived from overall_score. Any test failure forces F (SYS-003)."""
+        if self.test_metrics.failed > 0:
+            return "F"
         s = self.overall_score
         if s is None:
             return "N/A"
