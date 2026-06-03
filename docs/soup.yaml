@@ -1,20 +1,35 @@
 soup:
   - name: pydantic
     version: "2.12.5"
-    purpose: "Data validation and settings management for forge config objects"
+    intended_use: "Data validation and settings management for forge config objects"
     license: MIT
+    risk: low
+    verified_by: pip-audit
 
   - name: typer
     version: "0.25.1"
-    purpose: "CLI argument parsing for the forge command-line interface"
+    intended_use: "CLI argument parsing for the forge command-line interface"
     license: MIT
+    risk: low
+    verified_by: pip-audit
 
   - name: rich
     version: "15.0.0"
-    purpose: "Terminal output formatting for health report display"
+    intended_use: "Terminal output formatting for health report display"
     license: MIT
+    risk: low
+    verified_by: pip-audit
 
   - name: toml
     version: "0.10.2"
-    purpose: "Parsing forge and project configuration files"
+    intended_use: "Parsing forge and project configuration files"
     license: MIT
+    risk: low
+    verified_by: pip-audit
+
+  - name: idna
+    version: "3.15"
+    intended_use: "Internationalized domain names; pinned ==3.15 to close CVE-2026-45409"
+    license: BSD-3-Clause
+    risk: low
+    verified_by: pip-audit

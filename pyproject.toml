@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "forge-utils"
-version = "0.2.0"
+version = "0.3.0"
 description = "Personal project automation toolkit — health metrics, scaffolding, and workflow utilities"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,11 +12,11 @@ license = { text = "MIT" }
 authors = [{ name = "Renee Qian" }]
 
 dependencies = [
-    "pydantic>=2.0",
-    "typer>=0.12",
-    "rich>=13.0",
-    "toml>=0.10",
-    "idna>=3.15",
+    "pydantic==2.12.5",
+    "typer==0.25.1",
+    "rich==15.0.0",
+    "toml==0.10.2",
+    "idna==3.15",
 ]
 
 [project.optional-dependencies]
