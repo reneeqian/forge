@@ -1,5 +1,6 @@
 metadata:
   project: forge
+  samd_class: utility  # Not a SaMD — developer tooling with no connection to clinical outcomes
   version: 0.1.0
   description: >
     forge-utils is a personal dev-toolkit for code quality grading and project
