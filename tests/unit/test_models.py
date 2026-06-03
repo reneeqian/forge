@@ -104,6 +104,24 @@ class TestProjectHealthReport:
         report = ProjectHealthReport(project_name="x", project_path="/x")
         assert report.grade == "N/A"
 
+    @pytest.mark.requirement("SYS-003")
+    def test_grade_F_when_any_test_fails_regardless_of_score(self):
+        report = ProjectHealthReport(
+            project_name="x",
+            project_path="/x",
+            test_metrics=TestMetricsResult(score=0.95, total=10, passed=9, failed=1),
+        )
+        assert report.grade == "F"
+
+    @pytest.mark.requirement("SYS-003")
+    def test_grade_not_vetoed_when_no_test_failures(self):
+        report = ProjectHealthReport(
+            project_name="x",
+            project_path="/x",
+            test_metrics=TestMetricsResult(score=0.95, total=10, passed=10, failed=0),
+        )
+        assert report.grade == "A"
+
     def test_serialises_to_json(self):
         report = ProjectHealthReport(
             project_name="proj",

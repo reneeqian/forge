@@ -385,3 +385,16 @@ requirements:
       when content not in historical log; post-squash landing evolution correctly
       detected as incorporated; never delete main or dev; currently-checked-out
       stale branch deleted after GIT-003 checkout.
+
+  - id: SYS-003
+    title: Test Failure Veto on Grade
+    description: >
+      If one or more tests fail (test_metrics.failed > 0), the ProjectHealthReport
+      grade shall be "F" regardless of the overall_score or any other collector result.
+    rationale: >
+      A passing grade while tests are failing is misleading — it implies the project
+      is healthy when a basic correctness check is broken. Tests are the primary
+      signal that code works; no other quality metric can compensate for that.
+    verification: >
+      Unit test: ProjectHealthReport with test_metrics.failed=1 and score=0.95
+      returns grade "F"; same report with failed=0 returns grade "A".
